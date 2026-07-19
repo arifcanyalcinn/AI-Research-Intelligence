@@ -1,0 +1,98 @@
+# ============================================================
+# ARIP — Application Settings
+# ============================================================
+# All secrets (tokens, API keys) live in .env, NOT here.
+# Refer to .env.example for the full list of secrets.
+# Any field here can be overridden with an environment variable:
+#   ARIP_<SECTION>__<FIELD>=value
+# ============================================================
+
+pipeline:
+  run_interval_hours: 6
+  max_items_per_run: 50
+  languages: ["EN"]
+  max_normalization_retries: 1
+
+ranking:
+  min_score: 0.35
+  weights:
+    recency: 0.25
+    authority: 0.25
+    engagement: 0.35
+    topic: 0.15
+  topic_keywords:
+    - "large language model"
+    - "LLM"
+    - "transformer"
+    - "diffusion"
+    - "reinforcement learning"
+    - "fine-tuning"
+    - "RLHF"
+    - "multimodal"
+    - "reasoning"
+    - "agent"
+  source_authority:
+    arxiv: 0.85
+    huggingface_papers: 0.80
+    papers_with_code: 0.75
+    github_trending: 0.65
+    huggingface_models: 0.55
+    huggingface_spaces: 0.45
+
+dedup:
+  semantic_threshold: 0.92
+  ann_index_path: "data/ann_index.usearch"
+  top_k: 5
+
+llm:
+  backend: "transformers"
+  # model_name is REQUIRED — set it here or via ARIP_LLM__MODEL_NAME env var.
+  # Recommended: Qwen/Qwen2.5-7B-Instruct (4-bit quantized, ~4.5 GB VRAM)
+  model_name: "Qwen/Qwen2.5-7B-Instruct"
+  generation:
+    temperature: 0.7
+    max_new_tokens: 1024
+    top_p: 0.95
+    repetition_penalty: 1.1
+    seed: null
+    stop_sequences: []
+
+embeddings:
+  backend: "sentence_transformers"
+  model_name: "all-MiniLM-L6-v2"
+
+review:
+  enabled: true
+  backend: "telegram"
+  timeout_hours: 24
+  telegram:
+    # chat_id: your Telegram chat ID (get it from @userinfobot)
+    chat_id: 0  # placeholder — must be set to a real chat ID
+
+publishing:
+  enabled: true
+  publishers: ["dry_run"]  # Use "twitter" to publish to Twitter/X
+
+sources:
+  huggingface_papers:
+    enabled: true
+  huggingface_models:
+    enabled: true
+  huggingface_spaces:
+    enabled: true
+  arxiv:
+    enabled: true
+    max_results: 50
+    categories: ["cs.AI", "cs.LG", "cs.CL", "cs.CV"]
+  github_trending:
+    enabled: true
+  papers_with_code:
+    enabled: true
+
+database:
+  url: "sqlite:///data/arip.db"
+
+logging:
+  level: "INFO"
+  log_file: "logs/arip.log"
+  json_format: true

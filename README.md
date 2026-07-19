@@ -12,4 +12,14 @@ Architecture Frozen
 
 ## Current Phase
 
-Phase 0
+Roadmap
+
+[x] Phase 0
+
+[ ] Phase 1
+
+[ ] Phase 2
+
+...
+
+[ ] v1.0
