@@ -23,3 +23,6 @@ Import order is deterministic and visible in this file.
 #   Batch 4  → HuggingFaceModelsSource, HuggingFaceSpacesSource
 #   Batch 5  → GitHubTrendingSource
 #   Batch 6  → PapersWithCodeSource
+
+from .arxiv import ArXivSource  # noqa: F401
+from .huggingface_papers import HuggingFacePapersSource  # noqa: F401
