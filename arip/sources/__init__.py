@@ -25,4 +25,6 @@ Import order is deterministic and visible in this file.
 #   Batch 6  → PapersWithCodeSource
 
 from .arxiv import ArXivSource  # noqa: F401
+from .huggingface_models import HuggingFaceModelsSource  # noqa: F401
 from .huggingface_papers import HuggingFacePapersSource  # noqa: F401
+from .huggingface_spaces import HuggingFaceSpacesSource  # noqa: F401
