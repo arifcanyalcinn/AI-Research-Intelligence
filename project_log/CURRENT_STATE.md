@@ -7,8 +7,8 @@ Completed Batches
 
 [x] Batch 1
 [x] Batch 2
-[ ] Batch 3
-[ ] Batch 4
+[x] Batch 3
+[x] Batch 4
 [ ] Batch 5
 [ ] Batch 6
 [ ] Batch 7
@@ -16,22 +16,23 @@ Completed Batches
 Implemented Sources
 
 [x] ArXiv
-[ ] HuggingFace Papers
-[ ] HuggingFace Models
-[ ] HuggingFace Spaces
+[x] HuggingFace Papers
+[x] HuggingFace Models
+[x] HuggingFace Spaces
 [ ] GitHub Trending
 [ ] PapersWithCode
 
 Current Test Count
 
-157 Passed
+363 Passed
 
 Architecture Status
 
-- SDS compliant
+- Frozen SDS compliant
 - No known architectural violations
 
 Known Compatibility Issues
 
 - respx 0.21.1 issue #277
-- url__startswith workaround
+- Temporary workaround: url__startswith
+- Remove after upgrading to respx >= 0.22
