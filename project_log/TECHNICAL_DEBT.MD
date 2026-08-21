@@ -12,10 +12,10 @@ what would remove it.
 | TD-005 | HF Models / Spaces fetch limit and sort key are hardcoded constants | See D-005 — SDS types both as plain `SourceConfig` | Requires an SDS amendment to become configurable |
 | TD-006 | `ruff format` is not enforced; 14 files would be reformatted | Project gate is `ruff check` only (D-004 in the older numbering) | Decide whether to adopt `ruff format` project-wide, then reformat in one commit |
 
-| TD-002 | 13 ruff `W292` / `W293` errors across `arip/__init__.py`, the three `huggingface_*.py` sources, and their three test files | Pre-existing; unrelated to Batch 5 | `ruff check --fix` in a standalone cleanup commit |
+| TD-007 | 13 ruff `W292` / `W293` errors across `arip/__init__.py`, the three `huggingface_*.py` sources, and their three test files | Pre-existing; unrelated to Batch 5 | `ruff check --fix` in a standalone cleanup commit |
 
-| TD-007 | `github_trending` reads `ARIP_GITHUB_TOKEN` from `os.environ`, bypassing `AppSettings` | Required by D-006 because the existing registry contract cannot carry top-level secrets | Revisit if a future SDS revision allows plugins to receive application-level secrets |
-| TD-008 | `.env.example` cites a 60 req/hour GitHub limit; this refers to the core API, while the Search API has different limits | Documentation-only inaccuracy; unrelated to Batch 5 implementation | Correct in a separate housekeeping commit |
+| TD-008 | `github_trending` reads `ARIP_GITHUB_TOKEN` from `os.environ`, bypassing `AppSettings` | Required by D-006 because the existing registry contract cannot carry top-level secrets | Revisit if a future SDS revision allows plugins to receive application-level secrets |
+| TD-009 | `.env.example` cites a 60 req/hour GitHub limit; this refers to the core API, while the Search API has different limits | Documentation-only inaccuracy; unrelated to Batch 5 implementation | Correct in a separate housekeeping commit |
 
 ## Removed Debt
 
