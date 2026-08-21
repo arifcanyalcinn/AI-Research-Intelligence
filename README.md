@@ -10,16 +10,36 @@ Architecture Frozen
 
 ---
 
-## Current Phase
+Completed Batches
 
-Roadmap
+[x] Batch 1
+[x] Batch 2
+[x] Batch 3
+[x] Batch 4
+[x] Batch 5
+[ ] Batch 6
+[ ] Batch 7
 
-[x] Phase 0
+Implemented Sources
 
-[ ] Phase 1
+[x] ArXiv
+[x] HuggingFace Papers
+[x] HuggingFace Models
+[x] HuggingFace Spaces
+[x] GitHub Trending
+[ ] PapersWithCode
 
-[ ] Phase 2
+Current Test Count
 
-...
+450 Passed
 
-[ ] v1.0
+Architecture Status
+
+- Frozen SDS compliant
+- No known architectural violations
+
+Known Compatibility Issues
+
+- respx 0.21.1 issue #277
+- Temporary workaround: url__startswith
+- Remove after upgrading to respx >= 0.22
