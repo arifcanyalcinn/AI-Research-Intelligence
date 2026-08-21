@@ -9,7 +9,7 @@ Completed Batches
 [x] Batch 2
 [x] Batch 3
 [x] Batch 4
-[ ] Batch 5
+[x] Batch 5
 [ ] Batch 6
 [ ] Batch 7
 
@@ -19,12 +19,12 @@ Implemented Sources
 [x] HuggingFace Papers
 [x] HuggingFace Models
 [x] HuggingFace Spaces
-[ ] GitHub Trending
+[x] GitHub Trending
 [ ] PapersWithCode
 
 Current Test Count
 
-363 Passed
+450 Passed
 
 Architecture Status
 

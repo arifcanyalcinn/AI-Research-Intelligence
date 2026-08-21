@@ -123,3 +123,28 @@ Consequence
 
 Changing a fetch limit for these sources is a code change, not a config change.
 Making it configurable requires an SDS amendment.
+
+---
+
+## D-006
+
+Source plugins MAY read their own optional secret directly from `os.environ`.
+
+### Reason
+
+`SourceRegistry` constructs plugins as `cls(source_config)`, passing only that source's own `SourceConfig` block.
+
+Top-level secrets on `AppSettings`, such as `github_token`, are therefore not available through the existing plugin construction contract.
+
+### Rejected Alternatives
+
+- Passing `AppSettings` to plugin constructors — changes the plugin discovery architecture.
+- Adding the secret to a per-source config subclass — changes the frozen configuration schema.
+
+### Scope
+
+This decision applies only to optional secrets.
+
+The plugin must function correctly when the environment variable is absent.
+
+This decision is authorized by the Batch 5 SDS amendment.

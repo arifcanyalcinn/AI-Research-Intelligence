@@ -220,9 +220,85 @@ Message:
 
 ## Next
 
-Batch 5
+---
 
-* GitHub Trending Source
+# Batch 5 – GitHub Trending Source
 
-Prerequisites: none — Batch 1 infrastructure is sufficient.
-`ARIP_GITHUB_TOKEN` is already declared in config for higher rate limits.
+## Summary
+
+Implemented the GitHub Trending source plugin according to the Frozen SDS and the approved Batch 5 scope.
+
+## Implemented
+
+* Added `GitHubTrendingSource`
+* Added `arip/sources/github_trending.py`
+* Added comprehensive unit tests in `tests/unit/sources/test_github_trending.py`
+* Registered `GitHubTrendingSource` via `arip/sources/__init__.py`
+* Reused shared HTTP client (`build_client()`)
+* Reused shared retry policy (`FETCH_RETRY`)
+* Reused shared hash helper (`compute_content_hash()`)
+* Reused existing `BaseSource`, `RawSourcePayload`, `NormalizedItem`, `SourceHealth`, `SourceConfig`, and `SourceError` infrastructure
+* Implemented `SourceType.REPO`
+* Implemented GitHub repository payload normalization
+* Implemented `health_check()`
+* Preserved the existing explicit plugin discovery architecture
+* No new dependency introduced
+* No configuration schema changes introduced
+
+## Decisions
+
+* D-006 — Source plugins may read their own optional secret directly from `os.environ` when the existing plugin construction contract cannot provide an application-level secret.
+* GitHub Trending uses the GitHub REST Search API as the data source.
+* Trending is approximated using repository creation recency and descending star count.
+* Per-source implementation constants remain module-level constants under the existing D-005 rule.
+
+## SDS References
+
+* §1.2 — explicit plugin registration
+* §4.2 — `REPO` source type, GitHub slug identity, stars signal, content hash
+* §5.3 — `BaseSource` interface and HTTP/retry/error handling
+* §5.4 — source-level normalization
+* §5.5 — GitHub source authority
+* §5.15 — `github_trending: SourceConfig` and optional GitHub token
+* §6 — mandated source file path
+* §8 — Phase 1 source implementation scope
+
+## Files Changed
+
+| File | Reason |
+|------|--------|
+| `arip/sources/github_trending.py` | NEW — GitHub Trending source plugin |
+| `tests/unit/sources/test_github_trending.py` | NEW — GitHub Trending unit tests |
+| `arip/sources/__init__.py` | MODIFIED — explicit plugin registration |
+
+## Validation
+
+* Pytest: **450 / 450 passed**
+* Batch 5 Ruff check: **PASS**
+* Configuration validation: **PASS**
+* SDS compliance reviewed
+* Architecture review completed
+* Test review completed
+* No new dependency introduced
+* No unrelated files included in the Batch 5 commit
+
+## Git
+
+Commit:
+
+`d2eb48c`
+
+Message:
+
+`feat(batch5): add GitHub Trending source`
+
+## Next
+
+Batch 6
+
+* PapersWithCode Source
+
+Prerequisites:
+
+* Batch 5 committed and pushed
+* Working tree clean
