@@ -3,7 +3,8 @@
 ## Current Status
 
 Current Phase: Phase 1
-Current Batch: Batch 4 (Completed)
+Current Batch: Batch 5 (Completed)
+Next Batch: Batch 7 (Batch 6 deferred)
 Architecture: Frozen (Frozen_SDS.md)
 
 ---
@@ -59,23 +60,7 @@ Validation
 
 ## Technical Debt
 
-### RESPX Compatibility
-
-- Library:
-  respx==0.21.1
-
-Known issue:
-
-- Issue #277
-- HTTP method bytes/str mismatch
-
-Current workaround
-
-- url__startswith matching
-
-Remove after
-
-- respx >= 0.22.0
+Tracked separately in `project_log/TECHNICAL_DEBT.MD`.
 
 ---
 
@@ -87,11 +72,17 @@ Completed
 - Batch 2
 - Batch 3
 - Batch 4
+- Batch 5
+
+Deferred
+
+- Batch 6 (Papers With Code — no public API available)
 
 Next
 
-- Batch 5
-- GitHub Trending Source
+- Batch 7
+- Integration
+
 ---
 
 ## Notes
@@ -212,7 +203,7 @@ See TECHNICAL_DEBT.md — items TD-003, TD-004, TD-005 added by this batch.
 
 Commit:
 
-`<commit-hash>`
+`e7f1c7c`
 
 Message:
 
@@ -302,3 +293,46 @@ Prerequisites:
 
 * Batch 5 committed and pushed
 * Working tree clean
+
+---
+
+# Batch 6 – Papers With Code (DEFERRED)
+
+## Decision
+Deferred. Old service (paperswithcode.com) closed on 2025-07-24; Successor service
+(paperswithcode.co, Hugging Face) does not publish a documented open programmatic interface.
+Only machine-readable surfaces: sitemap containing only URLs and
+static archive with no interaction metrics (huggingface.co/pwc-archive).
+
+## Result
+- `papers_with_code` DEFINED but NOT APPLIED, `enabled: false`
+- Number of active resources: 5
+- Number of tests unchanged: 450
+- Next: Batch 7 (Integration), with 5 resources
+
+## SDS References
+
+* §1.2 — `papers_with_code` remains declared but unregistered
+* §5.5 — PwC source authority 0.75 retained in config
+* §5.15 — `papers_with_code: SourceConfig` retained, `enabled: false`
+* §8 L1494 / L1509 — Phase 2 gates unmeetable until this source returns
+
+## Technical Debt
+
+See TECHNICAL_DEBT.MD — TD-009 added by this decision.
+
+## Git
+
+Commit:
+
+`<batch6-commit-hash>`
+
+Message:
+
+`docs(batch6): defer Papers With Code source; no public API available`
+
+## Next
+
+Batch 7
+
+* Integration

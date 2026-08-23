@@ -662,10 +662,10 @@ RawSourcePayload
 
 **Testing Strategy:** Mock HTTP responses using `respx` (for `httpx`) or `responses` (for `requests`). Test: successful fetch, network timeout, 429 rate limit, malformed response. No network calls in tests.
 
-#####
-####
+
 ### 5.3.1 Secret Management Exception for Source Plugins
 Source plugins MAY read their own optional authentication tokens or secrets directly from `os.environ`. This is an exception to the strict configuration injection pattern, required when the central `AppSettings` model does not provision a specific secret. The plugin MUST function gracefully if the environment variable is absent.
+
 ---
 
 ## 5.4 Normalization
