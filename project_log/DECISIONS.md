@@ -147,4 +147,4 @@ This decision applies only to optional secrets.
 
 The plugin must function correctly when the environment variable is absent.
 
-This decision is authorized by the Batch 5 SDS amendment.
+This decision is authorized by SDS §5.3.1.

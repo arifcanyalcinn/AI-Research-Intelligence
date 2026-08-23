@@ -87,7 +87,7 @@ sources:
   github_trending:
     enabled: true
   papers_with_code:
-    enabled: true
+    enabled: false
 
 database:
   url: "sqlite:///data/arip.db"

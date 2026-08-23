@@ -10,7 +10,7 @@ Completed Batches
 [x] Batch 3
 [x] Batch 4
 [x] Batch 5
-[ ] Batch 6
+[DEFERRED] Batch 6
 [ ] Batch 7
 
 Implemented Sources
@@ -20,7 +20,7 @@ Implemented Sources
 [x] HuggingFace Models
 [x] HuggingFace Spaces
 [x] GitHub Trending
-[ ] PapersWithCode
+[DEFERRED] PapersWithCode
 
 Current Test Count
 
