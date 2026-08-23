@@ -668,6 +668,28 @@ Source plugins MAY read their own optional authentication tokens or secrets dire
 
 ---
 
+### 5.3.2 Papers With Code — Source Availability
+
+`PapersWithCodeSource` represents PAPER records.
+
+The legacy Papers With Code service (paperswithcode.com) was retired on
+2025-07-24 and exposes no functioning API. The successor service
+(paperswithcode.co, operated by Hugging Face) publishes no documented public
+programmatic interface as of this revision; its only machine-addressable
+surfaces are a sitemap of URLs and a static legacy data archive
+(huggingface.co/pwc-archive) that contains no engagement metric and is not
+updated with current papers.
+
+`papers_with_code` therefore remains DECLARED but UNIMPLEMENTED.
+`SourcesSettings.papers_with_code` stays in the configuration with
+`enabled: false`, and `SourceRegistry` operates with five active sources.
+
+This source is to be implemented when, and only when, the current service
+publishes a documented public read interface. Implementation MUST NOT be based
+on the retired API, on HTML scraping, or on undocumented internal endpoints.
+
+---
+
 ## 5.4 Normalization
 
 **Purpose:** Map a `RawSourcePayload` to the canonical `items` table schema.
