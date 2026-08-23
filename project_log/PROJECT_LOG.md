@@ -325,7 +325,7 @@ See TECHNICAL_DEBT.MD — TD-009 added by this decision.
 
 Commit:
 
-`<batch6-commit-hash>`
+`30f4e20`
 
 Message:
 
