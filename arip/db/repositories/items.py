@@ -44,8 +44,11 @@ class ItemRepository:
 
         Args:
             data: Dict of column values. Must include source_id, source_type,
-                  external_id, content_hash, title, primary_url, raw_payload.
+                  external_id, content_hash, title, primary_url.
                   uuid is auto-generated if not provided.
+                  Note: raw_payload is NOT an items column — the original
+                  payload lives in raw_source_payloads (SDS §4.7). Passing it
+                  here raises TypeError. See TECHNICAL_DEBT TD-011.
 
         Returns:
             The newly created Item with its auto-assigned id populated.
