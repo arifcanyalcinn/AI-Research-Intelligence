@@ -1139,6 +1139,36 @@ def set_wal_mode(conn, _):
 
 **Testing Strategy:** All repository tests use SQLite `:memory:` database with Alembic migrations applied. No mocking of the database layer — test against a real (in-memory) SQLite instance.
 
+### 5.14.1 — Repositories for `raw_source_payloads` and `pipeline_runs`
+
+**Amends:** the repository list in §5.14, which names four repositories. Two
+tables defined in §4 have no owning repository: `raw_source_payloads` (§4.7) and
+`pipeline_runs` (§4.6). §5.14 requires all database access to be abstracted from
+business logic, so no pipeline stage may write either table directly.
+
+Two additional repositories are named here. Both follow the pattern established
+by the existing four: a plain class with no shared base (AD-10), constructed with
+a `Session`, operating within the caller's session, never committing or closing
+it.
+
+```
+RawPayloadRepository(session: Session)
+└── create(data: dict) -> RawSourcePayload
+
+PipelineRunRepository(session: Session)
+├── create() -> PipelineRun                        # opens a run with status=RUNNING
+├── complete(run_id: int) -> None                  # status=COMPLETED, sets completed_at
+├── fail(run_id: int, error_summary: str) -> None  # status=FAILED
+└── reconcile_crashed() -> int                     # RUNNING → FAILED at startup (§4.6);
+                                                   # returns the number reconciled
+```
+
+File paths, per §6: `arip/db/repositories/raw_payloads.py` and
+`arip/db/repositories/pipeline_runs.py`.
+
+*No frozen decision in §9.1 is altered by this amendment. AD-10 is upheld: these
+are plain classes per entity with no generic base.*
+
 ---
 
 ## 5.15 Configuration
@@ -1641,6 +1671,117 @@ Each phase ends with a working application. Later phases add capability, not rep
 
 ---
 
+## 8.1 — Phase 2 Completion With a Deferred Source
+
+**Amends:** the Phase 2 quality gate item *"All 6 sources fetch and normalize
+real data"* (§8, Phase 2, first gate item — line 1534 as of v1.0.0-final). The
+original line is left in place.
+
+The Phase 2 quality gate item "All 6 sources fetch and normalize real data" is
+interpreted as "all sources registered in `arip/sources/__init__.py` fetch and
+normalize real data."
+
+A source that §5.3.2 or an equivalent availability finding places in the
+DECLARED-but-UNIMPLEMENTED state is excluded from this gate for as long as that
+finding stands. Phase 2 may be declared complete with the sources that remain
+registered.
+
+Phase 2 does not become retroactively incomplete when such a source is later
+implemented; the new source is admitted through its own batch and its own gate.
+
+*No frozen decision in §9.1 is altered by this amendment.*
+
+---
+
+## 8.2 — Batch / Phase Mapping
+
+**Amends:** nothing. This subsection records a mapping the SDS did not previously
+define.
+
+Project batches are an implementation subdivision of SDS phases. They are
+recorded in `project_log/` and have no independent architectural authority.
+
+Batch numbering and any phase headings used in `project_log/` are independent of
+the phase numbers in this section and may not correspond to them. Where the two
+disagree, the phase numbering in this document is authoritative. In particular,
+the source plugins and `SourceRegistry` delivered by Batches 1-6 (Batch 6
+deferred — see §5.3.2) are the Phase 2 deliverable list, not Phase 1.
+
+**Batch 7** delivers the collection path required to evaluate the Phase 2 quality
+gate:
+
+- `PipelineOrchestrator.run_once()`
+- `CollectStage`, implementing fetch → normalize → exact deduplication → persist
+- the `pipeline_runs` concurrency guard (§4.6)
+- per-run `SourceHealth` logging (§8, Phase 2 deliverables)
+
+The remaining Phase 1 stages — rank, embed, generate, review, publish, archive —
+together with the `schedule` loop and the stub LLM, embedder, and publisher
+backends, are delivered in subsequent batches and are outside Batch 7 scope.
+
+*No frozen decision in §9.1 is altered by this amendment.*
+
+---
+
+## 8.3 — Phase 2 Quality Gate: Deduplication and Failure-Mode Corrections
+
+**Amends:** two items of the Phase 2 quality gate (lines 1536 and 1538 as of
+v1.0.0-final), each quoted below. Both original lines are left in place as a
+record of what was intended.
+
+Two Phase 2 gate items describe behaviour that the frozen architecture forbids.
+Neither can be implemented as written. The interpretations below govern
+implementation and gate evaluation.
+
+### 8.3.1 — Exact deduplication
+
+**Governs the gate item:** *"Exact duplicates (same paper from ArXiv + PwC)
+marked `DUPLICATE`"*
+
+This cannot be implemented as written, for three independent reasons:
+
+1. `content_hash` is `SHA-256(source_id + external_id + title[:200])` (§4.2).
+   Because `source_id` is part of the hash, the same work retrieved from two
+   different sources always yields two different hashes. Exact deduplication is
+   per-source only.
+2. An exact duplicate is discarded before insertion (§5.7). No row exists that
+   could carry a `DUPLICATE` status.
+3. The transition matrix (§3.2) contains no `COLLECTED → DUPLICATE` transition.
+   `DUPLICATE` is reachable only from `EMBEDDED` via `dedup_hit`. Attempting the
+   transition raises `InvalidTransitionError` by design.
+
+**The gate item is evaluated as:** a payload whose `content_hash` already exists
+in `items` is discarded before insertion and the event is logged. No new row is
+created and no state transition occurs.
+
+Cross-source duplicates of the same work are outside the scope of exact
+deduplication. They are the responsibility of semantic deduplication in Phase 3
+(§5.7). The parenthetical "ArXiv + PwC" in the original gate item describes a
+cross-source case and is therefore not an exact-duplicate scenario at all,
+independently of the availability of Papers With Code (§5.3.2).
+
+### 8.3.2 — Source failure modes
+
+**Governs the gate item:** *"Source HTTP failure → item `FAILED`, other sources
+continue"*
+
+This cannot be implemented as written. A source HTTP failure returns an empty
+payload list (§5.3) — no item exists that could be marked `FAILED`.
+
+**The gate item is evaluated as two separate assertions:**
+
+1. A source HTTP failure yields an empty payload list, is logged, and the
+   remaining sources still run (§5.2, §5.3).
+2. A **normalization** failure marks that item `FAILED` with
+   `failed_at_stage='NORMALIZATION'`, and collection continues with the
+   remaining payloads (§3.3).
+
+*No frozen decision in §9.1 is altered by this amendment. §8.3.1 upholds AD-03:
+`DUPLICATE` remains reachable only through the transition matrix, and
+`StateMachine.transition()` remains the sole mutator of item status.*
+
+---
+
 # 9. Architecture Freeze
 
 ## 9.1 Final Architecture Decisions
@@ -1682,6 +1823,7 @@ These decisions are frozen. Changing them during implementation requires a writt
 | `AirLLMBackend` | Post-v1 | Only needed if target VRAM drops below 8 GB or model requirements exceed 13B |
 | Publisher concurrency | Phase 7 | Sequential publishing is adequate for ≤3 publishers and 50 items/run |
 | Per-source scheduling | Phase 7 | One global schedule is sufficient until sources have meaningfully different update frequencies |
+| `pipeline.max_items_per_run` enforcement point | Phase 3 (ranking and filtering) | §5.15 defines the field but the SDS never states whether the cap is per source or per run, nor which stage applies it. Collection does not enforce it. Phase 3 introduces `min_score` filtering, which is where item-count limiting is decided. |
 
 ## 9.3 Known Technical Debt
 
