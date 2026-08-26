@@ -1824,6 +1824,7 @@ These decisions are frozen. Changing them during implementation requires a writt
 | Publisher concurrency | Phase 7 | Sequential publishing is adequate for ≤3 publishers and 50 items/run |
 | Per-source scheduling | Phase 7 | One global schedule is sufficient until sources have meaningfully different update frequencies |
 | `pipeline.max_items_per_run` enforcement point | Phase 3 (ranking and filtering) | §5.15 defines the field but the SDS never states whether the cap is per source or per run, nor which stage applies it. Collection does not enforce it. Phase 3 introduces `min_score` filtering, which is where item-count limiting is decided. |
+| Normalization retry policy (§3.3 `COLLECTED → FAILED`) | When normalization replay (§4.7) is implemented | §3.3 says an item with `retry_count < pipeline.max_normalization_retries` is left in COLLECTED for the next run, but retrying requires re-normalizing from the stored payload — the §4.7 replay capability, which no current batch implements. Without replay an item left in COLLECTED is re-fetched and then skipped by the exact-dedup check, so it never progresses. §3.3 also describes the trigger as an "unrecoverable" error, which contradicts retrying at all. CollectStage therefore marks normalization failures FAILED immediately. |
 
 ## 9.3 Known Technical Debt
 
