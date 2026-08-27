@@ -8,8 +8,9 @@ All objects are constructed here and passed to their dependents via __init__
 parameters. Nothing reaches into this module at runtime — it runs once at
 startup and hands off fully-wired objects to main.py.
 
-Phase 0: only config, logging, and DB wiring.
-Phase 1+: source registry, pipeline orchestrator, scheduler, etc. are added here.
+Phase 0: config, logging, and DB wiring.
+Batch 7: source registry and pipeline orchestrator (SDS §8.2).
+Later batches: scheduler, LLM/embedding registries, reviewer, publishers.
 
 Target size: ~50-100 lines of straightforward factory code.
 """
@@ -25,6 +26,12 @@ from sqlalchemy.orm import Session, sessionmaker
 from arip.config import AppSettings, load_settings
 from arip.db.database import build_engine, build_session_factory, check_db_connection
 from arip.logging_setup import setup_logging
+from arip.pipeline.orchestrator import PipelineOrchestrator
+
+# Importing the registry also imports the arip.sources package, whose
+# __init__.py registers every source class as a BaseSource subclass (D-002).
+# SourceRegistry must not be constructed before that has happened.
+from arip.sources.registry import SourceRegistry
 
 
 @dataclass
@@ -38,6 +45,8 @@ class AppComponents:
     settings: AppSettings
     engine: Engine
     session_factory: sessionmaker[Session]
+    source_registry: SourceRegistry
+    orchestrator: PipelineOrchestrator
 
 
 def build_app_components(
@@ -51,7 +60,7 @@ def build_app_components(
         yaml_path: Path to the YAML config file. Override in tests.
 
     Returns:
-        AppComponents with all Phase 0 infrastructure initialized.
+        AppComponents with the infrastructure and pipeline objects wired.
 
     Raises:
         ConfigError: If settings are invalid.
@@ -79,10 +88,22 @@ def build_app_components(
     # Step 6: Build the session factory.
     session_factory = build_session_factory(engine)
 
+    # Step 7: Discover and instantiate the enabled source plugins.
+    # A source whose __init__ raises is logged and skipped (SDS §5.2).
+    source_registry = SourceRegistry(settings)
+
+    # Step 8: Wire the orchestrator with everything a run needs.
+    orchestrator = PipelineOrchestrator(
+        registry=source_registry,
+        session_factory=session_factory,
+    )
+
     return AppComponents(
         settings=settings,
         engine=engine,
         session_factory=session_factory,
+        source_registry=source_registry,
+        orchestrator=orchestrator,
     )
 
 

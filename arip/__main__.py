@@ -9,8 +9,8 @@ Usage:
 Subcommands:
     check-config    Validate configuration and print a summary. No pipeline runs.
     run             Execute one pipeline run immediately (manual trigger).
-                    Phase 0: prints "Pipeline not yet implemented."
-                    Phase 1+: runs the full pipeline.
+                    Batch 7 runs the collection stage; later batches extend
+                    the orchestrator with the remaining stages (SDS §8.2).
 
 The `arip` script alias also invokes this module (defined in pyproject.toml
 under [project.scripts]).
@@ -49,11 +49,8 @@ def cmd_check_config(args: argparse.Namespace) -> int:
 def cmd_run(args: argparse.Namespace) -> int:
     """Execute one pipeline run.
 
-    Phase 0: Validates config and DB, then exits cleanly.
-    Phase 1+: Runs the full pipeline orchestrator.
-
     Returns:
-        Exit code: 0 on success, 1 on error.
+        Exit code: 0 on success, 1 on a configuration, startup, or run error.
     """
     import structlog
 
@@ -74,12 +71,16 @@ def cmd_run(args: argparse.Namespace) -> int:
     log = structlog.get_logger("arip.main")
     log.info("arip_startup", version="0.1.0", database=components.settings.database.url)
 
-    # ── Phase 0 stub ────────────────────────────────────────────────────
-    # Phase 1 replaces this with: orchestrator.run_once()
-    print("Pipeline not yet implemented. (Phase 0 bootstrap complete.)")
-    log.info("phase0_complete", message="Infrastructure verified successfully.")
-    # ────────────────────────────────────────────────────────────────────
+    try:
+        run_id = components.orchestrator.run_once()
+    except Exception as exc:
+        # The run has already been recorded as FAILED with this reason;
+        # the orchestrator re-raised so the exit code reflects it.
+        print(f"✗ Pipeline run failed: {exc}", file=sys.stderr)
+        log.critical("pipeline_run_failed", error=str(exc), exc_info=True)
+        return 1
 
+    print(f"✓ Pipeline run {run_id} complete.")
     return 0
 
 
