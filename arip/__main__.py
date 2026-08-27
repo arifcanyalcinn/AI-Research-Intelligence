@@ -22,6 +22,16 @@ import argparse
 import sys
 from pathlib import Path
 
+# Windows consoles and pipes default to a legacy code page (cp1252), which
+# cannot encode the check and cross marks this module prints. Piping `arip run`
+# would then raise UnicodeEncodeError *after* the pipeline had already
+# succeeded, turning a successful run into a non-zero exit. Force UTF-8 on both
+# streams. The hasattr guard matters because pytest's capsys replaces these
+# objects with ones that have no reconfigure().
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 def cmd_check_config(args: argparse.Namespace) -> int:
     """Validate configuration and print a summary.

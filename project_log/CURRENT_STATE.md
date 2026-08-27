@@ -11,7 +11,7 @@ Completed Batches
 [x] Batch 4
 [x] Batch 5
 [DEFERRED] Batch 6
-[ ] Batch 7
+[x] Batch 7
 
 Implemented Sources
 
@@ -24,7 +24,7 @@ Implemented Sources
 
 Current Test Count
 
-450 Passed
+532 Passed
 
 Architecture Status
 
