@@ -15,6 +15,8 @@ pipeline:
 
 ranking:
   min_score: 0.35
+  # Recency decay constant: exp(-recency_k * days_elapsed). Higher = faster decay.
+  recency_k: 0.15
   weights:
     recency: 0.25
     authority: 0.25

@@ -65,6 +65,7 @@ class RankingSettings(BaseModel):
     """Scoring and filtering configuration."""
 
     min_score: float = 0.35
+    recency_k: float = 0.15  # Exponential decay constant for recency (SDS 5.5, 5.15.1)
     weights: SignalWeights = SignalWeights()
     topic_keywords: list[str] = []
     source_authority: dict[str, float] = {
