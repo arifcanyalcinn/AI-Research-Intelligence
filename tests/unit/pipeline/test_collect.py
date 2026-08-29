@@ -552,3 +552,32 @@ def test_collection_shares_the_run_session(
 
     assert len(all_items(db_session)) == 1
     assert run.id is not None
+
+
+# ---------------------------------------------------------------------------
+# normalized_at — SDS §8.5
+# ---------------------------------------------------------------------------
+
+
+def test_collected_item_has_normalized_at(make_stage, db_session: Session) -> None:
+    """CollectStage stamps normalized_at, per SDS §8.5.
+
+    §3.3's action line attributes this to the COLLECTED -> RANKED transition,
+    but §8.5 records that ranking and normalization are separate stages and
+    this is the one that normalizes.
+    """
+    make_stage(_StubSource([make_payload()])).run(RUN_ID)
+
+    assert isinstance(all_items(db_session)[0].normalized_at, datetime)
+
+
+def test_normalization_failure_leaves_normalized_at_null(
+    make_stage, db_session: Session
+) -> None:
+    """The stamp records that normalization succeeded, so a failure has none."""
+    source = _StubSource([make_payload("bad")], fail_external_ids={"bad"})
+    make_stage(source).run(RUN_ID)
+
+    item = all_items(db_session)[0]
+    assert item.status == ItemStatus.FAILED.value
+    assert item.normalized_at is None

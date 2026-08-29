@@ -34,7 +34,7 @@ Deduplication (SDS §8.3.1):
 from __future__ import annotations
 
 import json
-from datetime import date
+from datetime import date, datetime
 
 import structlog
 
@@ -214,8 +214,17 @@ class CollectStage:
 
         The item is left in ``COLLECTED`` — the default assigned by
         ``ItemRepository.create()``. No state transition happens here.
+
+        ``normalized_at`` is stamped here rather than by the
+        ``COLLECTED -> RANKED`` transition that §3.3's action line names,
+        because this is the stage that normalizes (SDS §8.5).
         """
-        item = self._item_repo.create(_item_columns(normalized))
+        columns = _item_columns(normalized)
+        # SDS §8.5: normalization happens here, so this stage stamps its time.
+        # The COLLECTED -> RANKED transition stamps ranked_at separately.
+        columns["normalized_at"] = datetime.utcnow()
+
+        item = self._item_repo.create(columns)
         self._payload_repo.create(
             {
                 "item_id": item.id,
