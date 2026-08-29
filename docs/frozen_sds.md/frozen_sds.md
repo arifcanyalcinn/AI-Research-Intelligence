@@ -406,6 +406,29 @@ The allowed transitions are encoded as a `frozenset` of `(from_status, to_status
 
 ---
 
+## 3.5 — `COLLECTED → FILTERED` Action Correction
+
+**Amends:** the Action line of the `COLLECTED → FILTERED` transition in §3.3, which reads
+*"Set `importance_score`, `filtered_reason='score_below_threshold'`"*. The original line is left
+in place.
+
+`filtered_reason` is not a column. It is absent from the `items` table in §4.2, from
+`arip/db/models.py`, and from the initial Alembic migration. §4.2 and the migration together
+define what exists; an action line may not introduce a column.
+
+The transition sets `importance_score` only.
+
+No information is lost. `FILTERED` has exactly one cause in the entire state machine — a score
+below `config.ranking.min_score` — and the score that produced the decision is stored in the same
+row. A column with one possible value records nothing that `importance_score` does not already
+show.
+
+Implementations MUST NOT pass `filtered_reason` to `StateMachine.transition()`.
+`ItemRepository.update_status()` discards unknown fields with a WARNING and continues, so a
+transition written to the original action line would appear to succeed while writing nothing.
+
+*No frozen decision in §9.1 is altered by this amendment.*
+
 # 4. Revised Database Schema
 
 ## 4.1 Design Principles
@@ -742,6 +765,58 @@ Each source knows its own schema best. A central normalizer that knows the schem
 **Testing Strategy:** Unit test with synthetic items. Assert weight validation (must sum to 1.0 ± 0.001). Test threshold filtering. Fully deterministic; no mocking needed.
 
 ---
+
+### 5.5.1 — Ranking Signal Definitions
+
+**Amends:** nothing. §5.5 specifies the four signals but leaves four operational values
+undetermined. This subsection fixes them so that ranking is deterministic. It adds no signal,
+changes no weight, and introduces no configuration.
+
+**Engagement metric per source.** §5.5 requires a "normalized metric per source type" but does
+not name the key within `items.source_signals`. The metric is:
+
+| `source_id` | Key | Note |
+|---|---|---|
+| `arxiv` | *(none)* | The ArXiv API exposes no engagement metric; `source_signals` is NULL |
+| `huggingface_papers` | `upvotes` | |
+| `huggingface_models` | `likes` | `downloads` is also present and is not used |
+| `huggingface_spaces` | `likes` | |
+| `github_trending` | `stars` | |
+
+`huggingface_models` resolves to `likes` because the other four sources all measure
+appreciation, and because that source fetches sorted by `downloads`, which compresses the
+variance of `downloads` within any single batch and makes it a poor percentile axis.
+
+A source whose `source_signals` is absent, NULL, or missing its key scores 0.0 for engagement,
+consistent with the malformed-JSON rule already stated in §5.5.
+
+**Single-item cohort.** §5.5's "Batch minimum = 1 if only one item" means that an item which is
+the sole member of its cohort scores 1.0 for engagement. A single member is trivially the
+maximum of its cohort.
+
+**Topic relevance match.** §5.5 specifies the score as `min(matches / 3, 1.0)` but not the text
+matched against. A keyword counts as a match when it appears, lowercased, as a substring of:
+
+```
+title + " " + (abstract or "") + " " + " ".join(topics or [])
+```
+
+Substring rather than whole-token matching, so that a curated keyword list matches inflections
+— "fine-tuning" within "fine-tuned", "LLM" within "LLMs". Concatenation rather than a single
+field, because every item has a title, most have an abstract, and only some have topics.
+
+**Derived from §5.5, recorded here as considered rather than decided:**
+
+- *Percentile cohort.* §5.5 reads "Normalized metric per source type. Percentile within the
+  current batch (not all-time)." The parenthetical contrasts with all-time, not with the source
+  cohort. The metric is normalized per source type and the percentile is computed within the
+  current run. This follows from §5.5 and is not a new decision.
+- *Missing publication date.* When `published_date` is NULL, recency scores 0.0. §5.5 already
+  assigns 0.0 to a missing engagement metric; missing data earns no credit, and scoring 1.0
+  would reward its absence. This follows from §5.5 and is not a new decision.
+
+*No frozen decision in §9.1 is altered by this amendment. AD-19 is upheld: novelty remains
+outside the ranking score.*
 
 ## 5.6 Embedding Service
 
@@ -1252,6 +1327,31 @@ SourceConfig
 **Testing Strategy:** Test with minimal YAML fixtures. Test that invalid weights raise. Test that missing required fields (e.g., `llm.model_name`) raise. Test env var override of YAML values.
 
 ---
+
+### 5.15.1 — Recency Decay Constant
+
+**Amends:** the `RankingSettings` block of the configuration model in §5.15, which declares
+`min_score`, `weights`, `topic_keywords` and `source_authority`. The original block is left in
+place.
+
+§5.5 defines the recency signal as `exp(-k × days_elapsed)` with "k = 0.15 (configurable)", but
+§5.15 declares no field for it. `RankingSettings` gains one:
+
+```
+ranking: RankingSettings
+├── min_score: float = 0.35
+├── weights: SignalWeights
+├── topic_keywords: list[str]
+├── source_authority: dict[str, float]
+└── recency_k: float = 0.15        # exponential decay constant, §5.5
+```
+
+D-005 — per-source tuning values are module constants — does not govern here. In the cases D-005
+addresses the SDS is silent about configurability; §5.5 states it explicitly. `recency_k` is also
+the only lever an operator has over the interaction between item age and `min_score`, which
+determines how quickly a source with no engagement metric ages below the threshold.
+
+*No frozen decision in §9.1 is altered by this amendment.*
 
 ## 5.16 Logging
 
@@ -1781,6 +1881,67 @@ payload list (§5.3) — no item exists that could be marked `FAILED`.
 `StateMachine.transition()` remains the sole mutator of item status.*
 
 ---
+
+## 8.4 — Stage Delivery After the Inverted Phase Order
+
+**Amends:** the Phase 1 deliverable list and the Phase 1 quality gate in §8. Both are left in
+place.
+
+Phase 1 states its goal as "Complete end-to-end pipeline runs with stub components. Proves the
+orchestration skeleton works", and lists stub implementations of the rank, embed, generate,
+validate, review, publish and archive stages. Its purpose is to de-risk orchestration **before**
+real sources exist.
+
+The project did not execute that order. Real sources were delivered first, and Batch 7 proved the
+orchestration skeleton with a real stage against live data — a complete run driving `CollectStage`
+across five production sources, with the `pipeline_runs` guard of §4.6 verified against a real
+database. The de-risking Phase 1 was designed to provide has been provided.
+
+Accordingly:
+
+1. **Each pipeline stage is delivered once**, in the phase that specifies its real
+   implementation. The Phase 1 stub implementations are not built.
+2. **The Phase 1 quality gate is superseded** and is not evaluated. Its items are either already
+   satisfied by Batch 7 in a stronger form, or unreachable: the item "`pipeline_runs` table shows
+   a completed run with stage metrics" cannot be met in Phase 1, because §8 Phase 7 lists
+   "Stage metrics written to `pipeline_runs.stage_metrics`" as a Phase 7 deliverable.
+3. **Two assertions are preserved, not discarded.** Phase 1's gate contains two assertions that
+   appear nowhere else in this document: "All items pass through all stages to `ARCHIVED`" and
+   "Running twice: second run skips already-ARCHIVED items (idempotency)". Neither is discarded.
+   Both are re-issued as gate items on the batch that delivers the final pipeline stage, at which
+   point they become evaluable for the first time. No phase between now and then asserts a full
+   traverse, and none is expected to.
+4. **Phase 1 is closed** on the basis of the above. It does not reopen when a later stage is
+   delivered.
+
+This amendment governs the delivery mechanism only. Every stage's required behaviour remains as
+its own phase specifies, and no quality gate other than Phase 1's is affected.
+
+*No frozen decision in §9.1 is altered by this amendment.*
+
+## 8.5 — `COLLECTED` Fan-Out Across Two Stages
+
+**Amends:** the Note on the `COLLECTED → FILTERED` transition in §3.3, which reads
+*"Normalization and ranking run in the same pass. A single stage handles COLLECTED → (RANKED |
+FILTERED | FAILED)."* The original note is left in place.
+
+§6 lists `collect.py` and `rank.py` as separate stage modules, and §8 lists `CollectStage` and
+`RankStage` as separate deliverables. §6 and §8 govern.
+
+The fan-out from `COLLECTED` is therefore shared by two stages:
+
+- `CollectStage` performs normalization and owns `COLLECTED → FAILED`
+  (`failed_at_stage='NORMALIZATION'`).
+- `RankStage` performs scoring and owns `COLLECTED → RANKED` and `COLLECTED → FILTERED`.
+
+`normalized_at` is stamped by `CollectStage` when normalization succeeds, not by the
+`COLLECTED → RANKED` transition as §3.3's action line implies. The automatic `ranked_at` stamp
+applied by `StateMachine._TIMESTAMP_FIELDS` on that transition is unaffected.
+
+No transition in the §3.2 matrix is added, removed, or altered. `StateMachine.transition()`
+remains the sole mutator of item status (AD-03); the change is only in which stage calls it.
+
+*No frozen decision in §9.1 is altered by this amendment.*
 
 # 9. Architecture Freeze
 
