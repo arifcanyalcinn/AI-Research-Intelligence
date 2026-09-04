@@ -12,3 +12,4 @@
 - ✅ Batch 5 - GitHub Trending
 - ⬜ Batch 6 - Papers With Code - DEFERRED !
 - ✅ Batch 7 - Integration (collection path)
+- ✅ Batch 8 - Ranking (Scorer and RankStage)

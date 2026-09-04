@@ -3,8 +3,8 @@
 ## Current Status
 
 Current Phase: Phase 1
-Current Batch: Batch 7 (Completed)
-Next Batch: Batch 8 (RankStage)
+Current Batch: Batch 8 (Completed)
+Next Batch: Batch 9 (embeddings and semantic deduplication)
 Architecture: Frozen (Frozen_SDS.md)
 
 ---
@@ -80,8 +80,8 @@ Deferred
 
 Next
 
-- Batch 8
-- RankStage (remaining SDS Phase 1 stages, per §8.2)
+- Batch 9
+- Embeddings and semantic deduplication (remainder of SDS Phase 3)
 
 ---
 
@@ -507,3 +507,151 @@ Prerequisites:
 * Working tree clean
 * Batch 8 scope defined before implementation — "the next stage" is not a specification, and the
   same Phase 1 analysis that Batch 7 required applies again
+
+---
+
+# Batch 8 – Ranking (Scorer and RankStage)
+
+## Summary
+
+Implemented the ranking half of SDS Phase 3: the four-signal composite `Scorer` and the `RankStage`
+that applies `ranking.min_score`. This is the first batch in which items are evaluated rather than
+merely collected, and the first in which the frozen ranking weights produce a visible outcome.
+
+Phase 1 analysis found that the SDS did not determine Batch 8's scope. §8 Phase 1 lists
+`RankStage (stub: score = 1.0 for all items)`; §8 Phase 3 lists a real `Scorer`. A stub would have
+satisfied no quality gate in any phase — Phase 1's needs every stage through to ARCHIVED, Phase 3's
+needs real signals — and Phase 1's stated purpose, proving the orchestration skeleton, was already
+met by Batch 7 against live data. Scope option B was approved: build the real thing once, and close
+Phase 1 by amendment rather than build stubs whose only future is deletion.
+
+## Implemented
+
+* Added `Scorer` (`arip/ranking/scorer.py`) — recency, source authority, engagement and topic
+  relevance, weighted per `config.ranking.weights`
+* Added `RankStage` (`arip/pipeline/stages/rank.py`) — `COLLECTED → RANKED` / `FILTERED`
+* Added `recency_k: float = 0.15` to `RankingSettings` and surfaced it in `config/settings.yaml`
+* Wired `Scorer` into `container.py` and `RankStage` into `PipelineOrchestrator.run_once()`
+* `CollectStage` now stamps `normalized_at`, a column previously written by no code in the project
+* Added 92 unit tests
+
+## Decisions
+
+Three judgement calls the SDS does not settle. None has a home in the SDS or the debt register, so
+they are recorded here.
+
+* **`Scorer` returns; `RankStage` decides.** §5.5 lists "Filter items below threshold" among the
+  ranking responsibilities, which could have put `min_score` inside the scorer. It is in the stage
+  instead. The scorer computes and returns `(score, breakdown)` with no knowledge of the threshold;
+  the stage compares and transitions. This is why `tests/unit/test_scorer.py` needs no database at
+  all — 63 tests of pure arithmetic — and why the threshold can be changed without touching scoring
+  logic.
+* **Scoring is batch-scoped, with no single-item public method.** The engagement signal is a
+  percentile within the current run (§5.5), which is undefined for one item in isolation. Rather
+  than offer a `score(item)` that silently means something different from `score_batch([item])`,
+  `score_batch` is the only public entry point. §5.5's `(score, breakdown)` return shape is
+  preserved per item.
+* **The orchestrator receives collaborators, never a settings object.** `RankStage` needs a
+  `Scorer`, which needs the whole `RankingSettings`. Rather than thread `AppSettings` into
+  `PipelineOrchestrator` — which would let every future stage reach for whatever config it liked —
+  `container.py` builds the `Scorer` and passes it in already constructed, alongside a bare
+  `min_score: float`. This is the pattern Batch 7 established for `SourceRegistry`, applied a
+  second time rather than a new one invented. The cost is a mixed-granularity constructor: a
+  constructed object beside a bare float.
+
+Additional derived decisions, smaller in scope:
+
+* Items whose source exposes no engagement metric (`arxiv`) score 0.0 **and are excluded from
+  cohort statistics**. Counting them as zeros would let a metric-less source inflate the
+  percentiles of every other source sharing its `source_type`.
+* A cohort of one scores engagement 1.0 (§5.5.1); a cohort tied at one value scores 0.0 for all
+  members. The asymmetry is deliberate — see TD-017.
+* `_filter()` persists `importance_score` only, per §3.5. The breakdown is logged at INFO on
+  `item_filtered` so the reason an item fell short stays recoverable from the run log.
+
+## Guidance for the embedding stage
+
+**`signal_breakdown` must be read, merged and re-written — never overwritten.**
+
+`RankStage` is now the first writer of `items.signal_breakdown`, storing the four ranking signals as
+JSON. SDS §5.5 states that the ANN distance to the nearest neighbour is *also* stored in that
+column ("stored in `items.signal_breakdown` but is not used in the ranking score"). The stage that
+computes it must load the existing JSON, add its key, and write the merged object back. A plain
+`json.dumps({"novelty": d})` would silently discard the four ranking signals for every item, with
+no error and no failing test.
+
+`ItemRepository.get_all_with_embeddings()` also already exists and is currently dead code — it was
+written for the §5.7 startup reconciliation query and is waiting for its caller. Verified in Batch
+8: the only references to it in the tree are its definition and one unit test.
+
+## SDS References
+
+* §3.3 — `COLLECTED → RANKED` / `FILTERED` actions and guards
+* §3.4 / AD-03 — `StateMachine.transition()` as sole status mutator
+* §3.5 — `COLLECTED → FILTERED` sets `importance_score` only
+* §4.2 — `importance_score` [0.0–1.0]; `signal_breakdown` TEXT (JSON)
+* §5.5 — the four signals, weights, and failure modes
+* §5.5.1 — engagement metric per source, single-item cohort, topic match text
+* §5.14 — repositories; session per unit of work
+* §5.15.1 — `recency_k` configuration field
+* §5.16 — structured logging with bound context
+* §6 — mandated file paths for the scorer and the stage
+* §8.2 — batch/phase mapping
+* §8.4 — Phase 1 stub stages superseded; Phase 1 closed
+* §8.5 — `COLLECTED` fan-out across two stages; `normalized_at` ownership
+* §9.1 AD-19 — novelty is not a ranking signal
+* §9.2 — deferred: `max_items_per_run` enforcement point, normalization retry
+
+## Files Changed
+
+| File | Reason |
+|------|--------|
+| `arip/ranking/__init__.py` | NEW — package marker (§6) |
+| `arip/ranking/scorer.py` | NEW — `Scorer` (§5.5, §5.5.1) |
+| `arip/pipeline/stages/rank.py` | NEW — `RankStage` (§6, §8.5) |
+| `arip/config.py` | MODIFIED — `recency_k` field (§5.15.1) |
+| `config/settings.yaml` | MODIFIED — `recency_k` surfaced |
+| `arip/pipeline/stages/collect.py` | MODIFIED — stamps `normalized_at` (§8.5) |
+| `arip/pipeline/orchestrator.py` | MODIFIED — `_rank()` and the constructor's scorer/min_score |
+| `arip/container.py` | MODIFIED — builds `Scorer`, wires it into the orchestrator |
+| `tests/unit/test_scorer.py` | NEW — 63 scorer tests |
+| `tests/unit/pipeline/test_rank.py` | NEW — 21 stage tests |
+| `tests/unit/pipeline/test_orchestrator.py` | MODIFIED — constructor sites; 6 ranking tests |
+| `tests/unit/pipeline/test_collect.py` | MODIFIED — 2 `normalized_at` tests |
+
+No new dependency. No configuration schema change beyond the amended `recency_k`. No source plugin
+modified.
+
+## Technical Debt
+
+No new technical debt introduced.
+
+Recorded separately: TD-016 (ArXiv ages out without an engagement metric), TD-017 (all-equal
+cohorts score 0.0), and TD-018 (recency measures creation age, not activity — confirmed on live
+data as the driver behind `huggingface_spaces` filtering).
+
+## Validation
+
+* Pytest: **624 / 624 passed** (532 pre-existing unchanged + 92 new)
+* Ruff: 13 pre-existing W292/W293 errors (TD-002), no new errors
+* Configuration validation: PASS
+* Coverage: `scorer.py`, `rank.py` and `orchestrator.py` all at 100%
+* Live verification: 250 items collected from five sources, **183 RANKED / 67 FILTERED**, zero left
+  in `COLLECTED`; all 67 filtered rows carry a NULL `signal_breakdown`, confirming the §3.5
+  narrowing on real data
+* Per-source mean scores: `huggingface_papers` 0.608, `github_trending` 0.495, `arxiv` 0.482,
+  `huggingface_models` 0.356, `huggingface_spaces` 0.294
+
+## Next
+
+Batch 9
+
+* Embeddings and semantic deduplication — the remaining half of SDS Phase 3
+
+Prerequisites:
+
+* Batch 8 committed and pushed
+* Working tree clean
+* Batch 9 scope defined before implementation, per the §8.2 precedent
+* Two new dependencies to be reviewed before adoption: `sentence-transformers`, `usearch`
+* The `signal_breakdown` merge requirement above must be honoured by `EmbedStage`
