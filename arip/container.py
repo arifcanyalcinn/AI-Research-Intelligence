@@ -10,6 +10,7 @@ startup and hands off fully-wired objects to main.py.
 
 Phase 0: config, logging, and DB wiring.
 Batch 7: source registry and pipeline orchestrator (SDS §8.2).
+Batch 8: ranking scorer.
 Later batches: scheduler, LLM/embedding registries, reviewer, publishers.
 
 Target size: ~50-100 lines of straightforward factory code.
@@ -27,6 +28,7 @@ from arip.config import AppSettings, load_settings
 from arip.db.database import build_engine, build_session_factory, check_db_connection
 from arip.logging_setup import setup_logging
 from arip.pipeline.orchestrator import PipelineOrchestrator
+from arip.ranking.scorer import Scorer
 
 # Importing the registry also imports the arip.sources package, whose
 # __init__.py registers every source class as a BaseSource subclass (D-002).
@@ -92,10 +94,18 @@ def build_app_components(
     # A source whose __init__ raises is logged and skipped (SDS §5.2).
     source_registry = SourceRegistry(settings)
 
-    # Step 8: Wire the orchestrator with everything a run needs.
+    # Step 8: Build the ranking scorer from the validated ranking config.
+    # It is stateless, so one instance serves every run.
+    scorer = Scorer(settings.ranking)
+
+    # Step 9: Wire the orchestrator with everything a run needs.
+    # It receives constructed collaborators and single values, never the
+    # settings object itself — config resolution stays in this module.
     orchestrator = PipelineOrchestrator(
         registry=source_registry,
         session_factory=session_factory,
+        scorer=scorer,
+        min_score=settings.ranking.min_score,
     )
 
     return AppComponents(

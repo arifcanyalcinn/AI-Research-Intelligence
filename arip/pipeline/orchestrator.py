@@ -1,11 +1,12 @@
 """
 Pipeline orchestrator — drives one complete pipeline run.
 
-Batch 7 (SDS §8.2) implements the collection path only:
+Stage sequence as of Batch 8 (SDS §8.2):
 
-    reconcile crashed runs → open run → log source health → collect → close run
+    reconcile crashed runs → open run → log source health → collect → rank
+    → close run
 
-The remaining stages — rank, embed, generate, review, publish, archive — are
+The remaining stages — embed, generate, review, publish, archive — are
 delivered in subsequent batches and are wired in here as they arrive.
 
 Session boundaries
@@ -35,6 +36,8 @@ from arip.db.repositories.items import ItemRepository
 from arip.db.repositories.pipeline_runs import PipelineRunRepository
 from arip.db.repositories.raw_payloads import RawPayloadRepository
 from arip.pipeline.stages.collect import CollectStage
+from arip.pipeline.stages.rank import RankStage
+from arip.ranking.scorer import Scorer
 from arip.sources.registry import SourceRegistry
 from arip.state_machine import StateMachine
 
@@ -52,14 +55,25 @@ class PipelineOrchestrator:
         self,
         registry: SourceRegistry,
         session_factory: sessionmaker[Session],
+        scorer: Scorer,
+        min_score: float,
     ) -> None:
         """
         Args:
             registry: Supplies the active source plugins.
             session_factory: Produces the sessions each stage runs in.
+            scorer: Computes item scores for the ranking stage.
+            min_score: Ranking threshold from ``config.ranking.min_score``.
+
+        The orchestrator receives finished collaborators and single values,
+        never a settings object. ``SourceRegistry`` and ``Scorer`` are both
+        built from configuration in ``container.py`` and injected here already
+        constructed — the pattern Batch 7 established for the registry.
         """
         self._registry = registry
         self._session_factory = session_factory
+        self._scorer = scorer
+        self._min_score = min_score
 
     # ------------------------------------------------------------------
     # Public interface
@@ -82,6 +96,7 @@ class PipelineOrchestrator:
 
         try:
             self._collect(run_id)
+            self._rank(run_id)
         except Exception as exc:
             with session_scope(self._session_factory) as session:
                 PipelineRunRepository(session).fail(run_id, str(exc))
@@ -169,5 +184,22 @@ class PipelineOrchestrator:
                 item_repo=item_repo,
                 payload_repo=RawPayloadRepository(session),
                 state_machine=StateMachine(item_repo),
+            )
+            stage.run(run_id)
+
+    def _rank(self, run_id: int) -> None:
+        """Run the ranking stage inside its own session scope.
+
+        A separate scope from collection, per §5.14: each stage is one unit of
+        work. Ranking reads whatever collection committed, so items collected
+        by the preceding stage are scored in the same run.
+        """
+        with session_scope(self._session_factory) as session:
+            item_repo = ItemRepository(session)
+            stage = RankStage(
+                item_repo=item_repo,
+                scorer=self._scorer,
+                state_machine=StateMachine(item_repo),
+                min_score=self._min_score,
             )
             stage.run(run_id)

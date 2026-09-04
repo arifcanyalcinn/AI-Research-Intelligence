@@ -9,6 +9,10 @@ Covers the Batch 7 scope defined in SDS §8.2:
   - the run lifecycle: RUNNING → COMPLETED, or → FAILED with error_summary
   - collection is driven and its results are committed
 
+and the Batch 8 addition (SDS §8.2):
+
+  - ranking runs after collection in the same run, in its own session scope
+
 Tested against an in-memory SQLite database. Sources are stubs, so no HTTP
 occurs and respx is not needed; the registry is a test double for the reason
 documented in test_collect.py.
@@ -23,7 +27,7 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from arip.config import SourceConfig
+from arip.config import RankingSettings, SignalWeights, SourceConfig
 from arip.db.database import build_session_factory, init_db, session_scope
 from arip.db.models import Item, PipelineRun
 from arip.db.repositories.pipeline_runs import PipelineRunRepository
@@ -31,6 +35,7 @@ from arip.entities import NormalizedItem, RawSourcePayload, SourceHealth
 from arip.enums import ItemStatus, PipelineRunStatus, SourceType
 from arip.interfaces import BaseSource
 from arip.pipeline.orchestrator import PipelineOrchestrator
+from arip.ranking.scorer import Scorer
 from arip.sources._http import compute_content_hash
 
 # ---------------------------------------------------------------------------
@@ -144,13 +149,40 @@ def session_factory() -> sessionmaker:
     engine.dispose()
 
 
+def ranking(**overrides: object) -> RankingSettings:
+    """RankingSettings for orchestrator wiring tests."""
+    base: dict[str, object] = {
+        "min_score": 0.35,
+        "recency_k": 0.15,
+        "weights": SignalWeights(),
+        "topic_keywords": [],
+        "source_authority": {"arxiv": 0.85, "github_trending": 0.65},
+    }
+    base.update(overrides)
+    return RankingSettings(**base)  # type: ignore[arg-type]
+
+
+def build_orchestrator(
+    registry: object,
+    session_factory: sessionmaker,
+    config: RankingSettings | None = None,
+) -> PipelineOrchestrator:
+    """Construct an orchestrator over any registry, real or double."""
+    settings = config or ranking()
+    return PipelineOrchestrator(
+        registry=registry,  # type: ignore[arg-type]
+        session_factory=session_factory,
+        scorer=Scorer(settings),
+        min_score=settings.min_score,
+    )
+
+
 @pytest.fixture
 def make_orchestrator(session_factory: sessionmaker):
-    def _factory(*sources: BaseSource) -> PipelineOrchestrator:
-        return PipelineOrchestrator(
-            registry=_Registry(*sources),
-            session_factory=session_factory,
-        )
+    def _factory(
+        *sources: BaseSource, config: RankingSettings | None = None
+    ) -> PipelineOrchestrator:
+        return build_orchestrator(_Registry(*sources), session_factory, config)
 
     return _factory
 
@@ -230,7 +262,8 @@ def test_collected_items_are_committed(make_orchestrator, session_factory) -> No
     make_orchestrator(_StubSource([make_payload()])).run_once()
 
     items = all_items(session_factory)
-    assert items[0].status == ItemStatus.COLLECTED.value
+    assert len(items) == 1
+    assert items[0].id is not None
 
 
 def test_second_run_skips_already_collected_items(
@@ -369,9 +402,7 @@ def test_source_fetch_failure_still_completes_the_run(
 
 def test_stage_failure_marks_run_failed(session_factory) -> None:
     """An error escaping the stage records the run as FAILED."""
-    orchestrator = PipelineOrchestrator(
-        registry=_ExplodingRegistry(), session_factory=session_factory
-    )
+    orchestrator = build_orchestrator(_ExplodingRegistry(), session_factory)
 
     with pytest.raises(RuntimeError):
         orchestrator.run_once()
@@ -385,9 +416,7 @@ def test_stage_failure_records_error_summary(session_factory) -> None:
     This is why the run row is written in its own session scope: sharing the
     stage's scope would roll the FAILED record back along with the stage.
     """
-    orchestrator = PipelineOrchestrator(
-        registry=_ExplodingRegistry(), session_factory=session_factory
-    )
+    orchestrator = build_orchestrator(_ExplodingRegistry(), session_factory)
 
     with pytest.raises(RuntimeError):
         orchestrator.run_once()
@@ -397,9 +426,7 @@ def test_stage_failure_records_error_summary(session_factory) -> None:
 
 def test_stage_failure_re_raises_to_the_caller(session_factory) -> None:
     """run_once() does not swallow the error — the CLI needs a non-zero exit."""
-    orchestrator = PipelineOrchestrator(
-        registry=_ExplodingRegistry(), session_factory=session_factory
-    )
+    orchestrator = build_orchestrator(_ExplodingRegistry(), session_factory)
 
     with pytest.raises(RuntimeError, match="registry exploded"):
         orchestrator.run_once()
@@ -407,16 +434,86 @@ def test_stage_failure_re_raises_to_the_caller(session_factory) -> None:
 
 def test_failed_run_is_reconcilable_on_the_next_start(session_factory) -> None:
     """A FAILED run is closed, so the next startup does not re-reconcile it."""
-    failing = PipelineOrchestrator(
-        registry=_ExplodingRegistry(), session_factory=session_factory
-    )
+    failing = build_orchestrator(_ExplodingRegistry(), session_factory)
     with pytest.raises(RuntimeError):
         failing.run_once()
 
-    PipelineOrchestrator(
-        registry=_Registry(_StubSource()), session_factory=session_factory
-    ).run_once()
+    build_orchestrator(_Registry(_StubSource()), session_factory).run_once()
 
     statuses = [r.status for r in all_runs(session_factory)]
     assert statuses.count(PipelineRunStatus.FAILED.value) == 1
     assert statuses.count(PipelineRunStatus.COMPLETED.value) == 1
+
+
+# ---------------------------------------------------------------------------
+# Ranking is driven — SDS §8.2, Batch 8
+# ---------------------------------------------------------------------------
+
+
+def test_collected_items_are_ranked_in_the_same_run(
+    make_orchestrator, session_factory
+) -> None:
+    """Collection and ranking both run, so nothing is left in COLLECTED."""
+    make_orchestrator(
+        _StubSource([make_payload("a"), make_payload("b")]),
+        config=ranking(min_score=0.0),
+    ).run_once()
+
+    statuses = {i.status for i in all_items(session_factory)}
+    assert statuses == {ItemStatus.RANKED.value}
+
+
+def test_low_scoring_items_are_filtered_in_the_same_run(
+    make_orchestrator, session_factory
+) -> None:
+    """The stub source has no configured authority, so it scores below 0.35."""
+    make_orchestrator(_StubSource([make_payload()])).run_once()
+
+    assert all_items(session_factory)[0].status == ItemStatus.FILTERED.value
+
+
+def test_nothing_remains_collected_after_a_run(
+    make_orchestrator, session_factory
+) -> None:
+    """Every collected item leaves COLLECTED within the run that collected it."""
+    make_orchestrator(_StubSource([make_payload("x"), make_payload("y")])).run_once()
+
+    remaining = [
+        i for i in all_items(session_factory) if i.status == ItemStatus.COLLECTED.value
+    ]
+    assert remaining == []
+
+
+def test_ranked_items_carry_a_score(make_orchestrator, session_factory) -> None:
+    """importance_score is persisted through the orchestrator path."""
+    make_orchestrator(
+        _StubSource([make_payload()]), config=ranking(min_score=0.0)
+    ).run_once()
+
+    item = all_items(session_factory)[0]
+    assert item.importance_score is not None
+    assert item.signal_breakdown is not None
+
+
+def test_run_completes_when_there_is_nothing_to_rank(
+    make_orchestrator, session_factory
+) -> None:
+    """An empty collection leaves ranking with no work and the run still closes."""
+    make_orchestrator().run_once()
+
+    assert all_runs(session_factory)[0].status == PipelineRunStatus.COMPLETED.value
+
+
+def test_second_run_does_not_rerank_items(
+    make_orchestrator, session_factory
+) -> None:
+    """Items ranked by the first run are not revisited by the second."""
+    orchestrator = make_orchestrator(
+        _StubSource([make_payload()]), config=ranking(min_score=0.0)
+    )
+    orchestrator.run_once()
+    first = all_items(session_factory)[0].ranked_at
+
+    orchestrator.run_once()
+
+    assert all_items(session_factory)[0].ranked_at == first
