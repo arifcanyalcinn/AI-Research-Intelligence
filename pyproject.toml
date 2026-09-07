@@ -39,8 +39,27 @@ dev = [
     "respx==0.21.1",
 ]
 
-# Phase 3+ (added when those phases begin)
-# embedding = ["sentence-transformers==3.0.1", "usearch==2.11.0"]
+# Phase 3 embedding stack (SDS 5.6, 5.7). Optional: `pip install -e ".[embedding]"`.
+# Kept out of the main dependencies so the source and ranking layers install
+# without torch.
+#
+# These are current versions chosen together, not the versions this project
+# recorded before Phase 3 began. SDS 11 pins no versions -- it names packages
+# and states the purpose of pinning: "It also documents exactly what version
+# combination was tested." The previously recorded sentence-transformers 3.0.1
+# predates NumPy 2.0 and, installed today, resolves against torch 2.14 and
+# transformers 4.57 -- a combination it was never tested against. See the
+# Batch 9 project log entry.
+embedding = [
+    "sentence-transformers==6.0.1",
+    "usearch==2.26.2",
+]
+
+# Phase 4+ (added when those phases begin).
+# WARNING: every pin on the llm line below is a 2024 version and is stale.
+# The embedding extra above puts the environment on transformers 5.x; the llm
+# line pins transformers 4.43.0, which cannot coexist with it. Re-pin the whole
+# line before uncommenting. See TD-019.
 # llm = ["transformers==4.43.0", "torch==2.3.1", "bitsandbytes==0.43.1", "accelerate==0.31.0"]
 # review = ["python-telegram-bot==21.4"]
 # publish = ["tweepy==4.14.0"]
