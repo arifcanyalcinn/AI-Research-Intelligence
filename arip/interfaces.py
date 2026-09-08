@@ -35,6 +35,8 @@ from arip.enums import SourceType
 
 if TYPE_CHECKING:
     # Avoid circular imports — these are only needed for type hints.
+    import numpy as np
+
     from arip.db.models import GeneratedContent, Item
     from arip.entities import ReviewDecision
 
@@ -162,14 +164,20 @@ class BaseEmbedder(ABC):
         """Unload the model and free CPU RAM."""
 
     @abstractmethod
-    def embed(self, texts: list[str]) -> list[list[float]]:
+    def embed(self, texts: list[str]) -> np.ndarray:
         """Compute embeddings for a batch of texts.
 
         Args:
             texts: One or more text strings to embed.
 
         Returns:
-            List of float32 vectors, one per input text.
+            A float32 array of shape ``(len(texts), embedding_dim)``, one row
+            per input text (SDS §5.6).
+
+            ``numpy`` is imported under ``TYPE_CHECKING`` only. It arrives with
+            the optional ``embedding`` extra, and this module is imported by
+            effectively the whole application — a runtime import here would make
+            the extra mandatory.
 
         Raises:
             arip.exceptions.EmbeddingError: On model failure.
