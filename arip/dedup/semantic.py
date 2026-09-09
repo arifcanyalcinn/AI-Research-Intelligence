@@ -222,7 +222,7 @@ class SemanticDeduplicator:
         Raises:
             RuntimeError: If called before ``load_index()``.
         """
-        neighbour_id, similarity = self._nearest(vector, item_id)
+        neighbour_id, similarity = self.nearest(vector, item_id)
 
         if neighbour_id is None:
             return (False, None)
@@ -304,17 +304,28 @@ class SemanticDeduplicator:
         logger.debug("ann_index_item_added", item_id=item_id, size=len(index))
 
     # ------------------------------------------------------------------
-    # Internals
+    # Search primitive — shared by is_duplicate() and the novelty signal
     # ------------------------------------------------------------------
 
-    def _nearest(self, vector: np.ndarray, item_id: int) -> tuple[int | None, float]:
+    def nearest(self, vector: np.ndarray, item_id: int) -> tuple[int | None, float]:
         """Nearest indexed item other than ``item_id``, and its cosine similarity.
+
+        Public because ``EmbedStage`` needs the *similarity* as well as the
+        verdict: §5.5 stores the ANN distance to the nearest neighbour in
+        ``items.signal_breakdown`` as the novelty signal (AD-19 — recorded, not
+        scored), and §5.7 froze ``is_duplicate()`` to return
+        ``(bool, int | None)`` with no room for it. This method is the accessor
+        for the value; ``is_duplicate()`` is the accessor for the decision, and
+        remains the only place the threshold comparison happens.
 
         Returns ``(None, 0.0)`` when there is no such item, or when the search
         could not run. ``top_k`` is the search ``k`` and only the closest
         surviving hit is used: the extra hits exist so that discarding a
         self-match still leaves a genuine neighbour, not so that several
         candidates are considered.
+
+        Raises:
+            RuntimeError: If called before ``load_index()``.
         """
         index = self._require_index()
 
@@ -341,6 +352,10 @@ class SemanticDeduplicator:
             return (neighbour_id, 1.0 - float(distance))
 
         return (None, 0.0)
+
+    # ------------------------------------------------------------------
+    # Internals
+    # ------------------------------------------------------------------
 
     def _new_index(self) -> Index:
         """An empty index at the configured width and metric."""

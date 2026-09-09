@@ -11,7 +11,8 @@ startup and hands off fully-wired objects to main.py.
 Phase 0: config, logging, and DB wiring.
 Batch 7: source registry and pipeline orchestrator (SDS §8.2).
 Batch 8: ranking scorer.
-Later batches: scheduler, LLM/embedding registries, reviewer, publishers.
+Batch 9: embedding registry and semantic deduplicator factory.
+Later batches: scheduler, LLM registry, reviewer, publishers.
 
 Target size: ~50-100 lines of straightforward factory code.
 """
@@ -19,13 +20,19 @@ Target size: ~50-100 lines of straightforward factory code.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
+# Importing the registry also imports the arip.backends.embeddings package,
+# whose __init__.py registers every backend as a BaseEmbedder subclass (D-004).
+# EmbeddingRegistry must not be constructed before that has happened.
+from arip.backends.embeddings.registry import EmbeddingRegistry
 from arip.config import AppSettings, load_settings
 from arip.db.database import build_engine, build_session_factory, check_db_connection
+from arip.dedup.semantic import SemanticDeduplicator
 from arip.logging_setup import setup_logging
 from arip.pipeline.orchestrator import PipelineOrchestrator
 from arip.ranking.scorer import Scorer
@@ -48,6 +55,7 @@ class AppComponents:
     engine: Engine
     session_factory: sessionmaker[Session]
     source_registry: SourceRegistry
+    embedding_registry: EmbeddingRegistry
     orchestrator: PipelineOrchestrator
 
 
@@ -98,14 +106,31 @@ def build_app_components(
     # It is stateless, so one instance serves every run.
     scorer = Scorer(settings.ranking)
 
-    # Step 9: Wire the orchestrator with everything a run needs.
-    # It receives constructed collaborators and single values, never the
-    # settings object itself — config resolution stays in this module.
+    # Step 9: Select the embedding backend named by config.embeddings.backend.
+    # Constructing the registry validates the name and fails fast with a
+    # ConfigError; no model is loaded here, and none is loaded until the
+    # embedding stage enters the backend it hands out (§5.6, AD-06).
+    embedding_registry = EmbeddingRegistry(settings.embeddings)
+
+    # Step 10: Bind the dedup configuration to a deduplicator factory.
+    #
+    # A factory, not an instance, because SemanticDeduplicator needs the ANN
+    # index width and the only truthful source of that is the loaded embedding
+    # model — which is not loaded at startup and must not be (AD-06). Binding
+    # the config here keeps config resolution in this module: the stage calls
+    # factory(embedding_dim=...) and never sees a settings object.
+    deduplicator_factory = partial(SemanticDeduplicator, config=settings.dedup)
+
+    # Step 11: Wire the orchestrator with everything a run needs.
+    # It receives constructed collaborators, single values and pre-bound
+    # factories, never the settings object itself.
     orchestrator = PipelineOrchestrator(
         registry=source_registry,
         session_factory=session_factory,
         scorer=scorer,
         min_score=settings.ranking.min_score,
+        embedder_factory=embedding_registry.get_backend,
+        deduplicator_factory=deduplicator_factory,
     )
 
     return AppComponents(
@@ -113,6 +138,7 @@ def build_app_components(
         engine=engine,
         session_factory=session_factory,
         source_registry=source_registry,
+        embedding_registry=embedding_registry,
         orchestrator=orchestrator,
     )
 

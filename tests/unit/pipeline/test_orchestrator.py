@@ -9,13 +9,24 @@ Covers the Batch 7 scope defined in SDS §8.2:
   - the run lifecycle: RUNNING → COMPLETED, or → FAILED with error_summary
   - collection is driven and its results are committed
 
-and the Batch 8 addition (SDS §8.2):
+the Batch 8 addition (SDS §8.2):
 
   - ranking runs after collection in the same run, in its own session scope
+
+and the Batch 9 addition (SDS §8.2, §5.7):
+
+  - embedding runs after ranking, in its own session scope
+  - the ANN index is saved *after* the session commits, never before
 
 Tested against an in-memory SQLite database. Sources are stubs, so no HTTP
 occurs and respx is not needed; the registry is a test double for the reason
 documented in test_collect.py.
+
+The embedder and deduplicator are doubles rather than the real ones on purpose:
+these tests assert *wiring and ordering*, and the real implementations would
+drag numpy and usearch — the optional `embedding` extra — into a module whose
+other 27 tests cover Batch 7 and 8 behaviour that needs neither. The real
+implementations are covered in tests/unit/backends/ and tests/unit/dedup/.
 """
 
 from __future__ import annotations
@@ -24,11 +35,16 @@ import json
 from datetime import datetime
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
 from arip.config import RankingSettings, SignalWeights, SourceConfig
-from arip.db.database import build_session_factory, init_db, session_scope
+from arip.db.database import (
+    build_engine,
+    build_session_factory,
+    init_db,
+    session_scope,
+)
 from arip.db.models import Item, PipelineRun
 from arip.db.repositories.pipeline_runs import PipelineRunRepository
 from arip.entities import NormalizedItem, RawSourcePayload, SourceHealth
@@ -126,6 +142,76 @@ class _ExplodingRegistry:
         return []
 
 
+class _FakeEmbedder:
+    """BaseEmbedder-shaped double. No numpy: a vector is a list of floats."""
+
+    backend_id = "_orch_fake"
+
+    def __init__(self) -> None:
+        self.entered = 0
+        self.exited = 0
+        self.texts: list[str] = []
+
+    @property
+    def embedding_dim(self) -> int:
+        return 4
+
+    @property
+    def model_name(self) -> str:
+        return "fake:model"
+
+    def __enter__(self) -> _FakeEmbedder:
+        self.entered += 1
+        return self
+
+    def __exit__(self, exc_type: object, exc_val: object, exc_tb: object) -> None:
+        self.exited += 1
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        self.texts.extend(texts)
+        return [[1.0, 0.0, 0.0, 0.0] for _ in texts]
+
+
+class _FakeDeduplicator:
+    """SemanticDeduplicator-shaped double that records when it was saved.
+
+    ``save_index`` runs the observer it was given, which is how
+    ``test_index_is_saved_after_the_session_commits`` sees whether the database
+    was already durable at that moment.
+    """
+
+    def __init__(self, embedding_dim: int, on_save=None) -> None:  # noqa: ANN001
+        self.embedding_dim = embedding_dim
+        self.loaded = 0
+        self.saves = 0
+        self.added: list[int] = []
+        self._on_save = on_save
+
+    def load_index(self) -> None:
+        self.loaded += 1
+
+    def save_index(self) -> None:
+        self.saves += 1
+        if self._on_save is not None:
+            self._on_save()
+
+    def is_duplicate(self, vector: object, item_id: int) -> tuple[bool, int | None]:
+        return (False, None)
+
+    def nearest(self, vector: object, item_id: int) -> tuple[int | None, float]:
+        return (None, 0.0)
+
+    def contains(self, item_id: int) -> bool:
+        return item_id in self.added
+
+    def add(self, item_id: int, vector: object) -> None:
+        self.added.append(item_id)
+
+    @property
+    def size(self) -> int:
+        return len(self.added)
+
+
 def make_payload(external_id: str = "p1", title: str = "A Paper") -> RawSourcePayload:
     return RawSourcePayload(
         source_id="_orch_stub",
@@ -166,23 +252,47 @@ def build_orchestrator(
     registry: object,
     session_factory: sessionmaker,
     config: RankingSettings | None = None,
+    embedder: _FakeEmbedder | None = None,
+    deduplicators: list[_FakeDeduplicator] | None = None,
+    on_save=None,  # noqa: ANN001
 ) -> PipelineOrchestrator:
     """Construct an orchestrator over any registry, real or double."""
     settings = config or ranking()
+    the_embedder = embedder or _FakeEmbedder()
+
+    def deduplicator_factory(embedding_dim: int) -> _FakeDeduplicator:
+        made = _FakeDeduplicator(embedding_dim, on_save=on_save)
+        if deduplicators is not None:
+            deduplicators.append(made)
+        return made
+
     return PipelineOrchestrator(
         registry=registry,  # type: ignore[arg-type]
         session_factory=session_factory,
         scorer=Scorer(settings),
         min_score=settings.min_score,
+        embedder_factory=lambda: the_embedder,  # type: ignore[arg-type,return-value]
+        deduplicator_factory=deduplicator_factory,  # type: ignore[arg-type]
     )
 
 
 @pytest.fixture
 def make_orchestrator(session_factory: sessionmaker):
     def _factory(
-        *sources: BaseSource, config: RankingSettings | None = None
+        *sources: BaseSource,
+        config: RankingSettings | None = None,
+        embedder: _FakeEmbedder | None = None,
+        deduplicators: list[_FakeDeduplicator] | None = None,
+        on_save=None,  # noqa: ANN001
     ) -> PipelineOrchestrator:
-        return build_orchestrator(_Registry(*sources), session_factory, config)
+        return build_orchestrator(
+            _Registry(*sources),
+            session_factory,
+            config,
+            embedder=embedder,
+            deduplicators=deduplicators,
+            on_save=on_save,
+        )
 
     return _factory
 
@@ -453,14 +563,29 @@ def test_failed_run_is_reconcilable_on_the_next_start(session_factory) -> None:
 def test_collected_items_are_ranked_in_the_same_run(
     make_orchestrator, session_factory
 ) -> None:
-    """Collection and ranking both run, so nothing is left in COLLECTED."""
+    """Ranking runs in the run that collected the items.
+
+    Superseded assertion, Batch 9: this test previously asserted that every
+    item ended the run in RANKED. That was a proxy for "ranking ran", and it
+    stopped being true when embedding was wired in — a passing item now
+    advances RANKED -> EMBEDDED -> ENRICHED within the same run, exactly as
+    §8.2 intends.
+
+    The property the test is actually for is that ranking produced its output,
+    which survives the later transitions: ``ranked_at`` and
+    ``importance_score`` are both set, and the item is past COLLECTED. Those
+    are asserted directly rather than through a status that a later stage owns.
+    """
     make_orchestrator(
         _StubSource([make_payload("a"), make_payload("b")]),
         config=ranking(min_score=0.0),
     ).run_once()
 
-    statuses = {i.status for i in all_items(session_factory)}
-    assert statuses == {ItemStatus.RANKED.value}
+    items = all_items(session_factory)
+    assert len(items) == 2
+    assert all(i.ranked_at is not None for i in items)
+    assert all(i.importance_score is not None for i in items)
+    assert all(i.status != ItemStatus.COLLECTED.value for i in items)
 
 
 def test_low_scoring_items_are_filtered_in_the_same_run(
@@ -517,3 +642,143 @@ def test_second_run_does_not_rerank_items(
     orchestrator.run_once()
 
     assert all_items(session_factory)[0].ranked_at == first
+
+
+# ---------------------------------------------------------------------------
+# Batch 9 — embedding stage wiring and the two-store write order
+# ---------------------------------------------------------------------------
+
+
+def test_embedding_runs_after_ranking_in_the_same_run(
+    make_orchestrator, session_factory
+) -> None:
+    """A collected item reaches ENRICHED within the run that collected it."""
+    make_orchestrator(
+        _StubSource([make_payload("a")]), config=ranking(min_score=0.0)
+    ).run_once()
+
+    item = all_items(session_factory)[0]
+    assert item.status == ItemStatus.ENRICHED.value
+    assert item.embedding_computed_at is not None
+    assert item.embedding_model_name == "fake:model"
+
+
+def test_embedder_is_entered_and_exited_exactly_once(make_orchestrator) -> None:
+    """§5.6: load once for the pass, unload after. Not once per item."""
+    embedder = _FakeEmbedder()
+    make_orchestrator(
+        _StubSource([make_payload("a"), make_payload("b"), make_payload("c")]),
+        config=ranking(min_score=0.0),
+        embedder=embedder,
+    ).run_once()
+
+    assert (embedder.entered, embedder.exited) == (1, 1)
+    assert len(embedder.texts) == 3
+
+
+def test_index_is_saved_once_per_run(make_orchestrator) -> None:
+    """Not once per item: save_index() serialises the whole index."""
+    made: list[_FakeDeduplicator] = []
+    make_orchestrator(
+        _StubSource([make_payload("a"), make_payload("b")]),
+        config=ranking(min_score=0.0),
+        deduplicators=made,
+    ).run_once()
+
+    assert len(made) == 1
+    assert made[0].loaded == 1
+    assert made[0].saves == 1
+
+
+def test_index_is_saved_after_the_session_commits(tmp_path) -> None:  # noqa: ANN001
+    """The write-order ruling, asserted rather than described.
+
+    An item present in the ANN index but absent from the database is the one
+    divergence §5.7's reconciliation cannot repair, because reconciliation walks
+    from the database to the index. So the commit must happen first.
+
+    The double reads the database from inside ``save_index()`` over a
+    **separate connection**, and therefore sees only what has been committed.
+
+    This test uses a file-backed SQLite database rather than the module's
+    in-memory fixture, and that is the whole point of it. On
+    ``sqlite:///:memory:`` SQLAlchemy hands every session the same underlying
+    connection, so a second session sees the first session's *uncommitted*
+    writes — which makes a commit-ordering assertion impossible to fail. An
+    earlier version of this test used the in-memory fixture and passed with
+    ``save_index()`` moved inside the session scope: it asserted nothing.
+    Verified by mutation: moving the save inside the scope fails this test and
+    no other.
+    """
+    engine = build_engine(f"sqlite:///{tmp_path / 'arip.db'}")
+    init_db(engine)
+    factory = build_session_factory(engine)
+    observed: list[int] = []
+
+    def on_save() -> None:
+        # A distinct connection from the pool, outside the stage's transaction.
+        with engine.connect() as connection:
+            observed.append(
+                connection.execute(
+                    text(
+                        "SELECT COUNT(*) FROM items "
+                        "WHERE embedding_computed_at IS NOT NULL"
+                    )
+                ).scalar_one()
+            )
+
+    try:
+        build_orchestrator(
+            _Registry(_StubSource([make_payload("a"), make_payload("b")])),
+            factory,
+            ranking(min_score=0.0),
+            on_save=on_save,
+        ).run_once()
+    finally:
+        engine.dispose()
+
+    assert observed == [2], "the rows must be durable before the index is written"
+
+
+def test_index_is_not_saved_when_there_is_nothing_to_embed(
+    make_orchestrator,
+) -> None:
+    """No RANKED items: no model load, no index, nothing to save.
+
+    Saving here would write a freshly created empty index over a good one.
+    """
+    made: list[_FakeDeduplicator] = []
+    embedder = _FakeEmbedder()
+    make_orchestrator(
+        _StubSource([make_payload("a")]),
+        config=ranking(min_score=1.1),  # every item is FILTERED, none RANKED
+        embedder=embedder,
+        deduplicators=made,
+    ).run_once()
+
+    assert made == []
+    assert embedder.entered == 0
+
+
+def test_filtered_items_are_never_embedded(make_orchestrator, session_factory) -> None:
+    """FILTERED is terminal; the embedding stage must not pick those items up."""
+    make_orchestrator(
+        _StubSource([make_payload("a")]), config=ranking(min_score=1.1)
+    ).run_once()
+
+    item = all_items(session_factory)[0]
+    assert item.status == ItemStatus.FILTERED.value
+    assert item.embedding_computed_at is None
+
+
+def test_novelty_is_merged_into_the_ranking_breakdown(
+    make_orchestrator, session_factory
+) -> None:
+    """End-to-end proof that ranking's signals survive the embedding stage."""
+    make_orchestrator(
+        _StubSource([make_payload("a")]), config=ranking(min_score=0.0)
+    ).run_once()
+
+    breakdown = json.loads(all_items(session_factory)[0].signal_breakdown)
+    assert "novelty" in breakdown
+    assert {"recency", "authority", "engagement", "topic"} <= set(breakdown)

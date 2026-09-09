@@ -155,6 +155,24 @@ class BaseEmbedder(ABC):
     def embedding_dim(self) -> int:
         """Dimension of the output vectors (e.g. 384 for all-MiniLM-L6-v2)."""
 
+    @property
+    @abstractmethod
+    def model_name(self) -> str:
+        """Name recorded on embedded items as ``items.embedding_model_name``.
+
+        §3.3 requires ``RANKED -> EMBEDDED`` to set that column, so the value
+        has to come from somewhere; the backend is the only object that knows
+        it truthfully. ``StubEmbedder`` returns ``"stub:<model>"``, and a
+        pipeline stage reading ``config.embeddings.model_name`` instead would
+        record stub vectors as real ones — the defect §5.7's reconciliation
+        query cannot detect, because it selects on ``embedding_computed_at``
+        alone.
+
+        Not listed in §5.6's Base Interface sketch. Both existing backends
+        already implement it; this declares the contract they share rather than
+        adding a new requirement.
+        """
+
     @abstractmethod
     def __enter__(self) -> BaseEmbedder:
         """Load the embedding model into CPU RAM."""

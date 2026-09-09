@@ -1,13 +1,13 @@
 """
 Pipeline orchestrator — drives one complete pipeline run.
 
-Stage sequence as of Batch 8 (SDS §8.2):
+Stage sequence as of Batch 9 (SDS §8.2):
 
     reconcile crashed runs → open run → log source health → collect → rank
-    → close run
+    → embed → close run
 
-The remaining stages — embed, generate, review, publish, archive — are
-delivered in subsequent batches and are wired in here as they arrive.
+The remaining stages — generate, review, publish, archive — are delivered in
+subsequent batches and are wired in here as they arrive.
 
 Session boundaries
 ------------------
@@ -24,9 +24,23 @@ Sharing one scope across all three would roll the run row back together with
 the stage's work, losing the very record that says the run failed. Splitting
 them also means a hard process kill leaves the row in RUNNING, which is
 exactly the state the §4.6 startup guard exists to reconcile.
+
+The ANN index is a second store, and its write order matters
+--------------------------------------------------------------
+
+``EmbedStage`` never calls ``save_index()``. The database must be committed
+first: an item present in the index but absent from the database is the one
+divergence §5.7's reconciliation cannot repair, because reconciliation walks
+*from* the database *to* the index. The commit happens when the stage's
+``session_scope`` exits — after ``run()`` has returned — so ``_embed()`` saves
+the index outside that block, using the deduplicator ``run()`` handed back. A
+crash in the gap therefore leaves only the recoverable direction: rows the
+index has not yet heard about, which the next run restores.
 """
 
 from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 import structlog
 from sqlalchemy.orm import Session, sessionmaker
@@ -36,10 +50,17 @@ from arip.db.repositories.items import ItemRepository
 from arip.db.repositories.pipeline_runs import PipelineRunRepository
 from arip.db.repositories.raw_payloads import RawPayloadRepository
 from arip.pipeline.stages.collect import CollectStage
+from arip.pipeline.stages.embed import EmbedStage
 from arip.pipeline.stages.rank import RankStage
 from arip.ranking.scorer import Scorer
 from arip.sources.registry import SourceRegistry
 from arip.state_machine import StateMachine
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from arip.dedup.semantic import SemanticDeduplicator
+    from arip.interfaces import BaseEmbedder
 
 logger = structlog.get_logger(__name__)
 
@@ -57,6 +78,8 @@ class PipelineOrchestrator:
         session_factory: sessionmaker[Session],
         scorer: Scorer,
         min_score: float,
+        embedder_factory: Callable[[], BaseEmbedder],
+        deduplicator_factory: Callable[..., SemanticDeduplicator],
     ) -> None:
         """
         Args:
@@ -64,16 +87,26 @@ class PipelineOrchestrator:
             session_factory: Produces the sessions each stage runs in.
             scorer: Computes item scores for the ranking stage.
             min_score: Ranking threshold from ``config.ranking.min_score``.
+            embedder_factory: Returns a fresh unloaded embedding backend —
+                ``EmbeddingRegistry.get_backend`` bound in ``container.py``. A
+                factory rather than an instance because ``BaseEmbedder`` is a
+                context manager whose ``__exit__`` unloads the model, so a
+                shared instance would be reused in an unloaded state.
+            deduplicator_factory: Called as ``factory(embedding_dim=...)``. The
+                dedup configuration is bound in ``container.py``; the width is
+                supplied per run by the loaded model, so the index can never be
+                built at a width the vectors do not have.
 
-        The orchestrator receives finished collaborators and single values,
-        never a settings object. ``SourceRegistry`` and ``Scorer`` are both
-        built from configuration in ``container.py`` and injected here already
-        constructed — the pattern Batch 7 established for the registry.
+        The orchestrator receives finished collaborators, single values and
+        pre-bound factories — never a settings object. Config resolution stays
+        in ``container.py``, the pattern Batch 7 established for the registry.
         """
         self._registry = registry
         self._session_factory = session_factory
         self._scorer = scorer
         self._min_score = min_score
+        self._embedder_factory = embedder_factory
+        self._deduplicator_factory = deduplicator_factory
 
     # ------------------------------------------------------------------
     # Public interface
@@ -97,6 +130,7 @@ class PipelineOrchestrator:
         try:
             self._collect(run_id)
             self._rank(run_id)
+            self._embed(run_id)
         except Exception as exc:
             with session_scope(self._session_factory) as session:
                 PipelineRunRepository(session).fail(run_id, str(exc))
@@ -203,3 +237,35 @@ class PipelineOrchestrator:
                 min_score=self._min_score,
             )
             stage.run(run_id)
+
+    def _embed(self, run_id: int) -> None:
+        """Run the embedding stage, then persist the ANN index.
+
+        The two-store write order (§5.7) dictates the shape, and it is the only
+        stage here that is not a single ``session_scope`` block:
+
+          1. ``session_scope`` opens.
+          2. ``EmbedStage.run()`` loads the model, loads the index, reconciles,
+             embeds, deduplicates and transitions every RANKED item, then
+             unloads the model and returns the deduplicator.
+          3. ``session_scope`` exits — **the database commits here**.
+          4. ``save_index()`` writes the index, now that the rows it describes
+             are durable.
+
+        ``run()`` returns ``None`` when there were no RANKED items: no model was
+        loaded and no index was created, so there is nothing to save. Saving in
+        that case would write an empty index over a good one.
+        """
+        with session_scope(self._session_factory) as session:
+            item_repo = ItemRepository(session)
+            stage = EmbedStage(
+                item_repo=item_repo,
+                state_machine=StateMachine(item_repo),
+                embedder=self._embedder_factory(),
+                deduplicator_factory=self._deduplicator_factory,
+            )
+            deduplicator = stage.run(run_id)
+        # The session has committed. Only now is it safe to persist the index.
+
+        if deduplicator is not None:
+            deduplicator.save_index()
