@@ -225,3 +225,49 @@ Ask for confirmation before proceeding.
 
 Correctness is more important than speed.
 Long-term maintainability is more important than cleverness.
+
+## Practices added after Batches 7–9
+
+These came out of specific failures. Each one exists because something went
+wrong without it.
+
+### Stage splitting
+
+A batch is delivered in stages, not in one message. Batch 8 used three, Batch 9
+used four. The first stage of a batch that adds dependencies is the dependency
+change alone, with no code — so the irreversible decision is reviewed on its own
+and a bad outcome is one revert of one file.
+
+### Manifest
+
+Every stage message ends with a table of each delivered file's path and its
+SHA-256, plus the archive's own hash. Two rounds were lost in Batch 9 to
+transfer errors — a stale archive extracted over a new one, and a filename saved
+with a space in it. Neither was a code defect and the test suite could not see
+either. The manifest catches both with one command.
+
+### Mutation testing for load-bearing behaviour
+
+Passing tests and 100% coverage are not evidence that a behaviour is protected.
+Coverage measures that a line ran, not that anything depended on its result.
+Two tests in Batch 9 asserted nothing and both were green: one because float32
+put the constructed 0.92 similarity at 0.9200000017881393, so the test passed
+under both `>=` and `>`; the other because in-memory SQLite shares one
+connection across sessions, so a "separate session" saw uncommitted writes.
+
+For any behaviour you describe as load-bearing, break it deliberately and report
+which tests fail. If the answer is none, the test is decorative — say so.
+
+### Never infer the contents of a file you have not seen
+
+If your copy of a file may be out of date, say "I have not seen this file" and
+stop. Do not reconstruct anchors, line numbers or file contents from memory.
+A whole exchange was lost to a stale archive being read as current.
+
+### Where decisions come from
+
+A second assistant reviews your work against the repository and rules on SDS
+ambiguities; the user relays those rulings. When you find an ambiguity, report
+it with the competing readings and your recommendation, and stop. Do not choose.
+A recommendation that you carry forward unchanged after your own evidence has
+undermined it is the failure mode to watch for — it happened twice in Batch 9.
