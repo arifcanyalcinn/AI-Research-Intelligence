@@ -13,3 +13,4 @@
 - ⬜ Batch 6 - Papers With Code - DEFERRED !
 - ✅ Batch 7 - Integration (collection path)
 - ✅ Batch 8 - Ranking (Scorer and RankStage)
+- ✅ Batch 9 - Embeddings and semantic deduplication

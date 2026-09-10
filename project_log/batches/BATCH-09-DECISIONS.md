@@ -423,7 +423,7 @@ coexist. The whole line must be re-pinned before Phase 4 uncomments it, and
 The `embedding` extra changes the suite's shape, and the two figures collide
 with an earlier baseline in a way that could mislead a reader:
 
-> **665 passed with the embedding extra; 624 passed, 1 skipped without it, the
+> **739 passed (embedding extra ile), 661 passed, 2 skipped without it, the
 > single skip standing for the whole module.**
 
 (Figures as of Stage 2. Stage 3 adds `tests/unit/dedup/`, making it **702

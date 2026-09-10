@@ -3,8 +3,8 @@
 ## Current Status
 
 Current Phase: Phase 1
-Current Batch: Batch 8 (Completed)
-Next Batch: Batch 9 (embeddings and semantic deduplication)
+Current Batch: Batch 9 (Completed)
+Next Batch: Batch 10 (content generation with a local LLM)
 Architecture: Frozen (Frozen_SDS.md)
 
 ---
@@ -80,8 +80,8 @@ Deferred
 
 Next
 
-- Batch 9
-- Embeddings and semantic deduplication (remainder of SDS Phase 3)
+- Batch 10
+- Content generation with a local LLM (SDS Phase 4)
 
 ---
 
@@ -655,3 +655,113 @@ Prerequisites:
 * Batch 9 scope defined before implementation, per the §8.2 precedent
 * Two new dependencies to be reviewed before adoption: `sentence-transformers`, `usearch`
 * The `signal_breakdown` merge requirement above must be honoured by `EmbedStage`
+
+---
+
+# Batch 9 – Embeddings and Semantic Deduplication
+
+## Summary
+
+Phase 3 complete. Embedding backends, the ANN deduplicator, and the EmbedStage
+that drives them. The Phase 3 quality gate is fully closed: Batch 8 closed gate
+items 1, 2, 5 and 6; this batch closes 3 and 4 with production evidence.
+
+Delivered in four stages: dependencies, embedding backends, SemanticDeduplicator,
+EmbedStage and wiring.
+
+## Implemented
+
+- arip/backends/__init__.py, arip/backends/embeddings/{__init__,registry,
+  stub_backend,sentence_transformers_backend}.py
+- arip/dedup/{__init__,semantic}.py
+- arip/pipeline/stages/embed.py
+- pyproject.toml: [project.optional-dependencies] embedding
+- Modified: arip/interfaces.py (two additive Phase 0 changes),
+  arip/pipeline/orchestrator.py, arip/container.py
+- Tests: tests/unit/backends/test_embeddings.py (41),
+  tests/unit/dedup/test_semantic.py (37),
+  tests/unit/pipeline/test_embed.py (30),
+  tests/unit/pipeline/test_orchestrator.py (+7)
+
+## Decisions
+
+Recorded in full in project_log/batches/BATCH-09-DECISIONS.md. In brief:
+
+- A1  embed() returns np.ndarray. The Phase 0 ABC changed because nothing
+      implemented BaseEmbedder yet — the only moment at which that was free.
+- A2  Check first, add after. SDS 5.7 governs over 3.3. The other reading makes
+      every item its own duplicate at similarity 1.0 and destroys the run.
+- A7  usearch is NOT pure Python (measured: compiled extension modules). The
+      SDS's stated rationale is wrong; its conclusion stands. Not amended.
+- A9  Novelty is merged into signal_breakdown, never overwritten, and is not a
+      ranking signal (AD-19).
+- Write order: the database commits before save_index(). An index entry for a
+      row the database never recorded is the one divergence reconciliation
+      cannot repair.
+- Dependencies: sentence-transformers 6.0.1 and usearch 2.26.2, chosen together.
+      The recorded 3.0.1 pin was kept only for transformers 4.43 compatibility,
+      and that was measured false — 3.0.1 resolves against transformers 4.57.
+
+## Defects found and fixed within the batch
+
+- Stage 2: StubEmbedder recorded itself as the real model. The registry passes
+  config.model_name to every backend, so the stub's default never applied and a
+  stub run wrote embedding_model_name = "all-MiniLM-L6-v2". SDS 5.7's
+  reconciliation selects on embedding_computed_at alone and cannot detect that.
+  Fixed by prefixing: model_name returns "stub:<model>". The test that should
+  have caught it asserted on a directly-constructed StubEmbedder — the one path
+  production never takes.
+- Stage 3: the threshold-boundary test passed under both >= and >, because
+  float32 puts the constructed 0.92 vector at 0.9200000017881393. Replaced with
+  a threshold of 1.0 against an identical vector, the only exact equality
+  available. Found by mutation, not by reading.
+- Stage 4: the write-order test passed with save_index() moved inside the
+  session scope, because in-memory SQLite shares one connection across sessions.
+  Rebuilt on a file-backed database.
+
+## SDS References
+
+5.6, 5.7, 3.3 (RANKED->EMBEDDED, RANKED->FAILED, EMBEDDED->ENRICHED,
+EMBEDDED->DUPLICATE), 5.5 (novelty), 5.14, 5.15, 5.16, 1.2, 11, AD-02, AD-03,
+AD-06, AD-11, AD-19, D-004, D-005.
+
+## Technical Debt
+
+TD-019 (Stage 1, stale llm pin line), TD-020 (HF Models semantic false
+positives), TD-021 (usearch accepts NaN vectors silently). TD-018 confirmed in
+production data.
+
+## Validation
+
+739 passed with the embedding extra; 661 passed, 2 skipped without it — the two
+skips each stand for a whole module.
+13 ruff errors, all pre-existing W292/W293 (TD-002), unchanged.
+100% statement coverage on every module this batch added.
+Eight mutations run; each failed only the tests that claim to protect it.
+
+## Live run
+
+399 items: 306 ENRICHED, 76 FILTERED, 17 DUPLICATE, zero left in RANKED.
+323 embedded = 306 + 17; the index holds 306 — duplicates are never indexed.
+ANN index 515,484 bytes, 306 vectors, written after the commit.
+13 of 17 duplicates cross-source, every one huggingface_papers matched to arxiv.
+200 of 200 sampled rows carry all five signal_breakdown keys — the read-merge-
+write defect warned about since Batch 8 is absent in production.
+Four false positives, all huggingface_models — see TD-020.
+
+## Phase 3 Quality Gate
+
+CLOSED. Six actionable items met; the "NOT YET" constraint holds.
+
+## Next
+
+Batch 10
+
+* Content generation with a local LLM (SDS Phase 4)
+
+Prerequisites:
+
+* Batch 9 committed and pushed
+* Working tree clean
+* TD-020 decided before generation begins — Phase 4 feeds this pool to the LLM
+* TD-019: the commented llm pin line re-pinned before it is uncommented
