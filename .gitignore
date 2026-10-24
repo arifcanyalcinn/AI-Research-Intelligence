@@ -40,3 +40,8 @@ logs/
 .DS_Store
 Thumbs.db
 data/
+
+# Generated analysis output - regenerated from data/arip.db by tools/
+enriched_pool.csv
+enriched_pool.html
+reading_list.html
