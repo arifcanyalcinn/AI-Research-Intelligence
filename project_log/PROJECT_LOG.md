@@ -806,3 +806,20 @@ Findings recorded during scoping:
   secret-management exception.
 
 Next: Batch 10 PRE-CODE ANALYSIS, then Batch 11 = SDS Phase 4.
+
+## Rulings (2026-10-25, on the PRE-CODE analysis)
+
+- A1/A3: TD-016 option (c), fixed engagement value 0.35 for declared metric-less
+  sources, via a new SDS amendment §5.5.2 (text approved verbatim before it is applied).
+  Floor 0.335 < min_score 0.35: age-out survives (~day 19 without topic match).
+  Simulated top 50 (ENRICHED, 306): 30 HF papers + 13 arxiv + 7 GitHub.
+- A2: explicit named set, module constant; only arxiv. Unknown sources stay 0.0.
+- A4: TD-017 no behaviour change; amendment records it as considered and not changed.
+- A6: re-score via a fresh DB and one live run. arip.db, -wal, -shm and
+  ann_index.usearch archived together. Before/after computed read-only from the archive.
+- A7: GitHub AI filter deferred (TD-022). Live check 2026-10-25: OR between topic:
+  qualifiers -> HTTP 422; OR between bare keywords works (llm 13,699 + diffusion 475
+  -> 14,146). Wrong "§5.3.1" citations corrected in Stage 1, comments only.
+- A8: ruff format adopted as standalone Stage 1b, before any logic stage.
+- A8b: "Decision 001-005" kept as the historical register; new decisions continue at D-007.
+- A9: TD-014 documentation only (mkdir data logs before alembic upgrade head).
