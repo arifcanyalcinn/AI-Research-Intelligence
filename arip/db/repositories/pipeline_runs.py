@@ -114,9 +114,7 @@ class PipelineRunRepository:
         Returns:
             The number of runs reconciled. Zero on a clean previous shutdown.
         """
-        stmt = select(PipelineRun).where(
-            PipelineRun.status == PipelineRunStatus.RUNNING.value
-        )
+        stmt = select(PipelineRun).where(PipelineRun.status == PipelineRunStatus.RUNNING.value)
         stale = list(self._session.execute(stmt).scalars().all())
 
         for run in stale:

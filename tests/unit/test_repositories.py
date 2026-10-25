@@ -106,9 +106,7 @@ def test_create_sets_default_status(repo: ItemRepository) -> None:
     assert item.status == ItemStatus.COLLECTED.value
 
 
-def test_create_raises_on_duplicate_content_hash(
-    repo: ItemRepository, db_session: Session
-) -> None:
+def test_create_raises_on_duplicate_content_hash(repo: ItemRepository, db_session: Session) -> None:
     """Duplicate content_hash violates the unique constraint."""
     from sqlalchemy.exc import IntegrityError
 
@@ -171,9 +169,7 @@ def test_get_by_content_hash_returns_none_for_missing(repo: ItemRepository) -> N
 # ---------------------------------------------------------------------------
 
 
-def test_get_by_status_returns_correct_items(
-    repo: ItemRepository, db_session: Session
-) -> None:
+def test_get_by_status_returns_correct_items(repo: ItemRepository, db_session: Session) -> None:
     """get_by_status() returns only items with that status."""
     repo.create(make_item_data(status=ItemStatus.COLLECTED))
     repo.create(make_item_data(status=ItemStatus.COLLECTED))

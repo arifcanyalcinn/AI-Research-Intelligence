@@ -490,9 +490,7 @@ class TestNormalize:
         """content_hash uses only the first 200 characters of the title (SDS §4.2)."""
         data = {**_VALID_RAW, "title": "X" * 300, "external_id": "org/s"}
         result = _default_source().normalize(_raw_payload_from_dict(data))
-        expected = hashlib.sha256(
-            f"huggingface_spaces:org/s:{'X' * 200}".encode()
-        ).hexdigest()
+        expected = hashlib.sha256(f"huggingface_spaces:org/s:{'X' * 200}".encode()).hexdigest()
         assert result.content_hash == expected
 
     def test_normalize_raw_payload_is_json_of_raw_data(self):
@@ -542,9 +540,7 @@ class TestTopicExtraction:
 
     def test_sdk_is_prepended(self):
         """The SDK leads the list when not already present."""
-        topics = HuggingFaceSpacesSource._extract_topics(
-            tags=["mcp-server"], sdk="gradio"
-        )
+        topics = HuggingFaceSpacesSource._extract_topics(tags=["mcp-server"], sdk="gradio")
         assert topics == ["gradio", "mcp-server"]
 
     def test_sdk_not_duplicated(self):
@@ -655,10 +651,7 @@ class TestPayloadStructure:
         payload = self._fetch_single(CARD_DATA_RESPONSE)
         result = _default_source().normalize(payload)
         assert result.title == "Wan2.2 14B Fast Preview"
-        assert (
-            result.primary_url
-            == "https://huggingface.co/spaces/cinderholm/wan2-2-i2v-v3"
-        )
+        assert result.primary_url == "https://huggingface.co/spaces/cinderholm/wan2-2-i2v-v3"
 
 
 # ---------------------------------------------------------------------------
@@ -693,9 +686,7 @@ class TestRegistryIntegration:
         import arip.sources  # noqa: F401
 
         settings = _minimal_settings(tmp_path)
-        object.__setattr__(
-            settings.sources, "huggingface_spaces", SourceConfig(enabled=False)
-        )
+        object.__setattr__(settings.sources, "huggingface_spaces", SourceConfig(enabled=False))
         registry = SourceRegistry(settings)
 
         assert registry.get_source("huggingface_spaces") is None
@@ -707,9 +698,7 @@ class TestRegistryIntegration:
         import arip.sources  # noqa: F401
 
         settings = _minimal_settings(tmp_path)
-        object.__setattr__(
-            settings.sources, "huggingface_spaces", SourceConfig(enabled=False)
-        )
+        object.__setattr__(settings.sources, "huggingface_spaces", SourceConfig(enabled=False))
         registry = SourceRegistry(settings)
         source_ids = [s.source_id for s in registry.get_active_sources()]
 

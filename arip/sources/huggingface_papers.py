@@ -276,29 +276,21 @@ class HuggingFacePapersSource(BaseSource):
         paper: dict = entry.get("paper", {})
 
         # External ID: prefer top-level "id"; fall back to nested paper.id.
-        external_id: str = (
-            str(entry.get("id", "")).strip() or str(paper.get("id", "")).strip()
-        )
+        external_id: str = str(entry.get("id", "")).strip() or str(paper.get("id", "")).strip()
 
         # Title: prefer nested paper.title; fall back to top-level title.
-        title: str = (
-            str(paper.get("title", "")).strip() or str(entry.get("title", "")).strip()
-        )
+        title: str = str(paper.get("title", "")).strip() or str(entry.get("title", "")).strip()
 
         # Abstract / summary from the nested paper object.
         abstract: str = str(paper.get("summary", "")).strip()
 
         # Authors: only display names are available; no institution data exposed.
         authors: list[str] = [
-            str(a.get("name", "")).strip()
-            for a in paper.get("authors", [])
-            if a.get("name")
+            str(a.get("name", "")).strip() for a in paper.get("authors", []) if a.get("name")
         ]
 
         # Published date: ISO 8601 datetime → truncate to YYYY-MM-DD.
-        raw_date: str = str(
-            paper.get("publishedAt", "") or entry.get("publishedAt", "")
-        ).strip()
+        raw_date: str = str(paper.get("publishedAt", "") or entry.get("publishedAt", "")).strip()
         published_date: str = raw_date[:10] if raw_date else ""
 
         # Engagement metric for the ranking stage.

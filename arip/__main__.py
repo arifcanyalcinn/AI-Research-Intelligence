@@ -33,6 +33,7 @@ if hasattr(sys.stdout, "reconfigure"):
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
+
 def cmd_check_config(args: argparse.Namespace) -> int:
     """Validate configuration and print a summary.
 

@@ -308,9 +308,7 @@ class HuggingFaceModelsSource(BaseSource):
             - ``published_date`` (str): ISO date ``"YYYY-MM-DD"`` (empty if absent).
         """
         # External ID: prefer top-level "id"; fall back to "modelId".
-        external_id: str = (
-            str(entry.get("id", "")).strip() or str(entry.get("modelId", "")).strip()
-        )
+        external_id: str = str(entry.get("id", "")).strip() or str(entry.get("modelId", "")).strip()
 
         # Author: explicit field when present, else the org prefix of the repo ID.
         author: str = str(entry.get("author", "")).strip()
@@ -423,8 +421,7 @@ class HuggingFaceModelsSource(BaseSource):
         title: str = data.get("title", "").strip()
         if not title:
             raise SourceError(
-                f"HuggingFace model '{payload.external_id}' is missing "
-                "required field: title"
+                f"HuggingFace model '{payload.external_id}' is missing required field: title"
             )
 
         external_id: str = data.get("external_id", "").strip()

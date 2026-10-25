@@ -235,12 +235,14 @@ def test_arxiv_has_no_engagement_metric() -> None:
 def test_models_use_likes_not_downloads() -> None:
     """huggingface_models resolves to likes; downloads is present and unused."""
     high_downloads = make_item(
-        "huggingface_models", "MODEL",
+        "huggingface_models",
+        "MODEL",
         source_signals={"downloads": 1_000_000, "likes": 1},
         item_id=1,
     )
     high_likes = make_item(
-        "huggingface_models", "MODEL",
+        "huggingface_models",
+        "MODEL",
         source_signals={"downloads": 1, "likes": 500},
         item_id=2,
     )
@@ -502,7 +504,8 @@ def test_item_with_no_text_at_all_scores_zero() -> None:
 def test_composite_is_the_weighted_sum_of_the_four_signals() -> None:
     """The score is reproducible by hand from the breakdown and the weights."""
     item = make_item(
-        "github_trending", "REPO",
+        "github_trending",
+        "REPO",
         published_date=NOW.date(),
         title="A transformer study",
         source_signals={"stars": 5},
@@ -537,7 +540,8 @@ def test_breakdown_carries_no_novelty_signal() -> None:
 def test_score_is_bounded_between_zero_and_one() -> None:
     """§4.2 declares importance_score as [0.0-1.0]."""
     best = make_item(
-        "github_trending", "REPO",
+        "github_trending",
+        "REPO",
         published_date=NOW.date(),
         title="transformer diffusion reasoning",
         source_signals={"stars": 100},
@@ -580,8 +584,13 @@ def test_empty_batch_returns_empty_list() -> None:
 def test_scoring_is_deterministic() -> None:
     """Same inputs, same outputs — no randomness anywhere (SDS §5.5)."""
     items = [
-        make_item("github_trending", "REPO", published_date=NOW.date(),
-                  source_signals={"stars": n}, item_id=n)
+        make_item(
+            "github_trending",
+            "REPO",
+            published_date=NOW.date(),
+            source_signals={"stars": n},
+            item_id=n,
+        )
         for n in (1, 2, 3)
     ]
     scorer = Scorer(settings())
@@ -624,7 +633,8 @@ def test_weights_within_tolerance_are_accepted() -> None:
 def test_reweighting_changes_the_composite() -> None:
     """Weights are configuration, and the scorer honours them."""
     item = make_item(
-        "github_trending", "REPO",
+        "github_trending",
+        "REPO",
         published_date=NOW.date(),
         source_signals={"stars": 5},
     )
@@ -662,7 +672,8 @@ def test_arxiv_ages_below_threshold_without_engagement(
     """
     config = settings()
     item = make_item(
-        "arxiv", "PAPER",
+        "arxiv",
+        "PAPER",
         published_date=NOW.date() - timedelta(days=days),
         title="Untitled",
     )
@@ -676,7 +687,8 @@ def test_arxiv_ages_below_threshold_without_engagement(
 def test_raising_recency_k_ages_arxiv_out_faster() -> None:
     """§5.15.1's stated purpose: recency_k is the operator's lever (TD-016)."""
     item = make_item(
-        "arxiv", "PAPER",
+        "arxiv",
+        "PAPER",
         published_date=NOW.date() - timedelta(days=3),
         title="Untitled",
     )

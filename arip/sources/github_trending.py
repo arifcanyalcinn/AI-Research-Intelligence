@@ -496,8 +496,7 @@ class GitHubTrendingSource(BaseSource):
         title: str = data.get("title", "").strip()
         if not title:
             raise SourceError(
-                f"GitHub repository '{payload.external_id}' is missing "
-                "required field: title"
+                f"GitHub repository '{payload.external_id}' is missing required field: title"
             )
 
         external_id: str = data.get("external_id", "").strip()
@@ -507,9 +506,7 @@ class GitHubTrendingSource(BaseSource):
                 "(external_id is absent and primary_url cannot be constructed)"
             )
 
-        primary_url: str = (
-            data.get("html_url") or f"{GITHUB_REPO_BASE_URL}/{external_id}"
-        )
+        primary_url: str = data.get("html_url") or f"{GITHUB_REPO_BASE_URL}/{external_id}"
 
         owner: str = data.get("owner", "")
         authors: list[str] | None = [owner] if owner else None
@@ -572,15 +569,12 @@ class GitHubTrendingSource(BaseSource):
                 )
                 response.raise_for_status()
                 data = response.json()
-                if not isinstance(data, dict) or not isinstance(
-                    data.get("items"), list
-                ):
+                if not isinstance(data, dict) or not isinstance(data.get("items"), list):
                     return SourceHealth(
                         source_id=self.source_id,
                         is_healthy=False,
                         last_error=(
-                            "Unexpected response shape: no 'items' array in "
-                            "search response"
+                            "Unexpected response shape: no 'items' array in search response"
                         ),
                     )
             return SourceHealth(

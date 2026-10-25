@@ -495,9 +495,7 @@ class TestNormalize:
         payload = _raw_payload_from_dict(self._VALID_RAW)
         result = ArXivSource(config=None).normalize(payload)
 
-        expected = hashlib.sha256(
-            b"arxiv:2401.12345:Attention Is All You Need Again"
-        ).hexdigest()
+        expected = hashlib.sha256(b"arxiv:2401.12345:Attention Is All You Need Again").hexdigest()
         assert result.content_hash == expected
 
     def test_normalize_content_hash_uses_helper(self):
@@ -521,9 +519,7 @@ class TestNormalize:
         payload = _raw_payload_from_dict(data)
         result = ArXivSource(config=None).normalize(payload)
 
-        expected = hashlib.sha256(
-            f"arxiv:2401.12345:{'A' * 200}".encode()
-        ).hexdigest()
+        expected = hashlib.sha256(f"arxiv:2401.12345:{'A' * 200}".encode()).hexdigest()
         assert result.content_hash == expected
 
     def test_normalize_raw_payload_is_json_of_raw_data(self):
@@ -675,17 +671,11 @@ class TestPayloadStructure:
 
     def test_raw_data_primary_url(self):
         """raw_data['primary_url'] is the alternate-rel link (B2-R09)."""
-        assert (
-            self._fetch_single().raw_data["primary_url"]
-            == "http://arxiv.org/abs/2401.12345v1"
-        )
+        assert self._fetch_single().raw_data["primary_url"] == "http://arxiv.org/abs/2401.12345v1"
 
     def test_raw_data_pdf_url(self):
         """raw_data['pdf_url'] is the pdf-titled link (B2-R09)."""
-        assert (
-            self._fetch_single().raw_data["pdf_url"]
-            == "http://arxiv.org/pdf/2401.12345v1"
-        )
+        assert self._fetch_single().raw_data["pdf_url"] == "http://arxiv.org/pdf/2401.12345v1"
 
     def test_raw_data_published_date(self):
         """raw_data['published_date'] is 'YYYY-MM-DD' (B2-R09)."""

@@ -57,7 +57,7 @@ def build_engine(database_url: str) -> Engine:
         def set_wal_mode(conn, _record) -> None:  # type: ignore[type-arg]
             conn.execute("PRAGMA journal_mode=WAL")
             conn.execute("PRAGMA synchronous=NORMAL")  # Safe with WAL; faster writes.
-            conn.execute("PRAGMA foreign_keys=ON")      # Enforce FK constraints.
+            conn.execute("PRAGMA foreign_keys=ON")  # Enforce FK constraints.
 
     return engine
 

@@ -293,9 +293,7 @@ def test_empty_published_date_is_null(make_stage, db_session: Session) -> None:
     assert all_items(db_session)[0].published_date is None
 
 
-def test_unparseable_published_date_is_null_not_a_failure(
-    make_stage, db_session: Session
-) -> None:
+def test_unparseable_published_date_is_null_not_a_failure(make_stage, db_session: Session) -> None:
     """A malformed date does not fail the item — §4.2 declares the column nullable."""
     make_stage(_StubSource([make_payload(published_date="not-a-date")])).run(RUN_ID)
 
@@ -321,7 +319,7 @@ def test_one_raw_payload_row_per_item(make_stage, db_session: Session) -> None:
 
 def test_raw_payload_round_trips_as_json(make_stage, db_session: Session) -> None:
     """The stored payload parses back to the original API response (§4.7 replay)."""
-    payload = make_payload(title="Braces {and} \"quotes\"")
+    payload = make_payload(title='Braces {and} "quotes"')
     make_stage(_StubSource([payload])).run(RUN_ID)
 
     assert json.loads(all_payload_rows(db_session)[0].payload) == payload.raw_data
@@ -350,9 +348,7 @@ def test_identical_payload_collected_twice_creates_one_item(
     assert len(all_items(db_session)) == 1
 
 
-def test_duplicate_creates_no_second_raw_payload_row(
-    make_stage, db_session: Session
-) -> None:
+def test_duplicate_creates_no_second_raw_payload_row(make_stage, db_session: Session) -> None:
     """A discarded duplicate writes nothing at all — it is dropped before insertion."""
     stage = make_stage(_StubSource([make_payload()]))
     stage.run(RUN_ID)
@@ -384,9 +380,7 @@ def test_retitled_item_is_not_collected_twice(make_stage, db_session: Session) -
     assert items[0].title == "Original Title"
 
 
-def test_same_work_from_two_sources_creates_two_items(
-    make_stage, db_session: Session
-) -> None:
+def test_same_work_from_two_sources_creates_two_items(make_stage, db_session: Session) -> None:
     """Cross-source duplicates are NOT exact duplicates (§8.3.1).
 
     content_hash includes source_id (§4.2), so the same paper fetched from two
@@ -418,9 +412,7 @@ def test_normalization_failure_marks_item_failed(make_stage, db_session: Session
     assert items[0].status == ItemStatus.FAILED.value
 
 
-def test_normalization_failure_records_stage_and_reason(
-    make_stage, db_session: Session
-) -> None:
+def test_normalization_failure_records_stage_and_reason(make_stage, db_session: Session) -> None:
     """failed_at_stage and failure_reason are populated per §3.3."""
     source = _StubSource([make_payload("bad")], fail_external_ids={"bad"})
     make_stage(source).run(RUN_ID)
@@ -430,9 +422,7 @@ def test_normalization_failure_records_stage_and_reason(
     assert "missing required field" in item.failure_reason
 
 
-def test_normalization_failure_increments_retry_count(
-    make_stage, db_session: Session
-) -> None:
+def test_normalization_failure_increments_retry_count(make_stage, db_session: Session) -> None:
     """retry_count is incremented on the failure, per §3.3."""
     source = _StubSource([make_payload("bad")], fail_external_ids={"bad"})
     make_stage(source).run(RUN_ID)
@@ -440,9 +430,7 @@ def test_normalization_failure_increments_retry_count(
     assert all_items(db_session)[0].retry_count == 1
 
 
-def test_normalization_failure_stores_raw_payload(
-    make_stage, db_session: Session
-) -> None:
+def test_normalization_failure_stores_raw_payload(make_stage, db_session: Session) -> None:
     """The payload is kept so the item can be re-normalized without re-fetching (§4.7)."""
     source = _StubSource([make_payload("bad")], fail_external_ids={"bad"})
     make_stage(source).run(RUN_ID)
@@ -452,9 +440,7 @@ def test_normalization_failure_stores_raw_payload(
     assert json.loads(rows[0].payload)["title"] == "A Paper About Things"
 
 
-def test_collection_continues_after_normalization_failure(
-    make_stage, db_session: Session
-) -> None:
+def test_collection_continues_after_normalization_failure(make_stage, db_session: Session) -> None:
     """The remaining payloads are still collected (§8.3.2, second assertion)."""
     payloads = [make_payload("good1"), make_payload("bad"), make_payload("good2")]
     source = _StubSource(payloads, fail_external_ids={"bad"})
@@ -467,9 +453,7 @@ def test_collection_continues_after_normalization_failure(
     assert by_status["bad"] == ItemStatus.FAILED.value
 
 
-def test_repeated_normalization_failure_creates_one_item(
-    make_stage, db_session: Session
-) -> None:
+def test_repeated_normalization_failure_creates_one_item(make_stage, db_session: Session) -> None:
     """A payload that fails again on a later run does not insert a second row."""
     source = _StubSource([make_payload("bad")], fail_external_ids={"bad"})
     stage = make_stage(source)
@@ -479,13 +463,9 @@ def test_repeated_normalization_failure_creates_one_item(
     assert len(all_items(db_session)) == 1
 
 
-def test_unexpected_normalize_exception_is_contained(
-    make_stage, db_session: Session
-) -> None:
+def test_unexpected_normalize_exception_is_contained(make_stage, db_session: Session) -> None:
     """A plugin bug raising something other than SourceError still fails only its item."""
-    source = _StubSource(
-        [make_payload("boom")], normalize_error=KeyError("unexpected key")
-    )
+    source = _StubSource([make_payload("boom")], normalize_error=KeyError("unexpected key"))
     make_stage(source).run(RUN_ID)
 
     assert all_items(db_session)[0].status == ItemStatus.FAILED.value
@@ -503,9 +483,7 @@ def test_empty_fetch_creates_no_items(make_stage, db_session: Session) -> None:
     assert all_items(db_session) == []
 
 
-def test_failing_source_does_not_stop_other_sources(
-    make_stage, db_session: Session
-) -> None:
+def test_failing_source_does_not_stop_other_sources(make_stage, db_session: Session) -> None:
     """§8.3.2, first assertion: the remaining sources still run."""
     broken = _StubSource([], source_id="src_broken", fetch_error=RuntimeError("boom"))
     healthy = _StubSource([make_payload("ok", source_id="src_ok")], source_id="src_ok")
@@ -543,9 +521,7 @@ def test_stage_does_not_commit_the_session(make_stage, db_session: Session) -> N
     assert db_session.in_transaction()
 
 
-def test_collection_shares_the_run_session(
-    make_stage, db_session: Session
-) -> None:
+def test_collection_shares_the_run_session(make_stage, db_session: Session) -> None:
     """Items and the pipeline_runs row are written through the same session."""
     run = PipelineRunRepository(db_session).create()
     make_stage(_StubSource([make_payload()])).run(run.id)
@@ -571,9 +547,7 @@ def test_collected_item_has_normalized_at(make_stage, db_session: Session) -> No
     assert isinstance(all_items(db_session)[0].normalized_at, datetime)
 
 
-def test_normalization_failure_leaves_normalized_at_null(
-    make_stage, db_session: Session
-) -> None:
+def test_normalization_failure_leaves_normalized_at_null(make_stage, db_session: Session) -> None:
     """The stamp records that normalization succeeded, so a failure has none."""
     source = _StubSource([make_payload("bad")], fail_external_ids={"bad"})
     make_stage(source).run(RUN_ID)

@@ -185,9 +185,7 @@ class EmbedStage:
         embedded = enriched = duplicates = failed = 0
 
         with self._embedder as embedder:
-            deduplicator = self._deduplicator_factory(
-                embedding_dim=embedder.embedding_dim
-            )
+            deduplicator = self._deduplicator_factory(embedding_dim=embedder.embedding_dim)
             deduplicator.load_index()
             self._reconcile(run_id, embedder, deduplicator)
 
@@ -250,9 +248,7 @@ class EmbedStage:
         _, similarity = deduplicator.nearest(vector, item.id)
         is_dup, neighbour_id = deduplicator.is_duplicate(vector, item.id)
 
-        novelty = (
-            NOVELTY_WITHOUT_NEIGHBOUR if neighbour_id is None else 1.0 - similarity
-        )
+        novelty = NOVELTY_WITHOUT_NEIGHBOUR if neighbour_id is None else 1.0 - similarity
         self._embed_ok(item, embedder.model_name, novelty)
 
         if is_dup:

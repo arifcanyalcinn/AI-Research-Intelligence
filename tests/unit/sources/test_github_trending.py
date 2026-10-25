@@ -114,9 +114,7 @@ _SECOND_ITEM: dict = {
 
 def _envelope(items: list[dict]) -> str:
     """Wrap items in the GitHub search response envelope."""
-    return json.dumps(
-        {"total_count": len(items), "incomplete_results": False, "items": items}
-    )
+    return json.dumps({"total_count": len(items), "incomplete_results": False, "items": items})
 
 
 SINGLE_ITEM_RESPONSE: str = _envelope([_FIRST_ITEM])
@@ -389,9 +387,7 @@ class TestFetch:
         bad_item = {"id": 1, "stargazers_count": 10, "topics": []}
         with respx.mock as mock:
             mock.route(url__startswith=GITHUB_SEARCH_URL).mock(
-                return_value=httpx.Response(
-                    200, text=_envelope([bad_item, _FIRST_ITEM])
-                )
+                return_value=httpx.Response(200, text=_envelope([bad_item, _FIRST_ITEM]))
             )
             payloads = _default_source().fetch()
 
@@ -435,9 +431,13 @@ class TestAcquisitionSemantics:
         """The created:> cutoff is the window boundary, computed in UTC."""
         q = self._captured_url().params["q"]
         expected = (
-            datetime.now(tz=timezone.utc)  # noqa: UP017
-            - timedelta(days=GITHUB_TRENDING_WINDOW_DAYS)
-        ).date().isoformat()
+            (
+                datetime.now(tz=timezone.utc)  # noqa: UP017
+                - timedelta(days=GITHUB_TRENDING_WINDOW_DAYS)
+            )
+            .date()
+            .isoformat()
+        )
         assert q == f"created:>{expected}"
 
     def test_orders_by_star_count(self):
@@ -507,9 +507,7 @@ class TestAuthentication:
             )
             assert len(_default_source().fetch()) == 1
 
-    def test_bearer_header_sent_when_token_available(
-        self, monkeypatch: pytest.MonkeyPatch
-    ):
+    def test_bearer_header_sent_when_token_available(self, monkeypatch: pytest.MonkeyPatch):
         """An available token is used for an authenticated request."""
         monkeypatch.setenv(GITHUB_TOKEN_ENV_VAR, "ghp_exampletoken")
         assert self._captured_headers()["authorization"] == "Bearer ghp_exampletoken"
@@ -675,9 +673,7 @@ class TestNormalize:
         """content_hash uses only the first 200 characters of the title (SDS §4.2)."""
         data = {**_VALID_RAW, "title": "X" * 300, "external_id": "o/r"}
         result = _default_source().normalize(_raw_payload_from_dict(data))
-        expected = hashlib.sha256(
-            f"github_trending:o/r:{'X' * 200}".encode()
-        ).hexdigest()
+        expected = hashlib.sha256(f"github_trending:o/r:{'X' * 200}".encode()).hexdigest()
         assert result.content_hash == expected
 
     def test_normalize_raw_payload_is_json_of_raw_data(self):
@@ -770,8 +766,7 @@ class TestPayloadStructure:
     def test_raw_data_html_url(self):
         """raw_data['html_url'] is the canonical repository URL."""
         assert (
-            self._fetch_single().raw_data["html_url"]
-            == "https://github.com/drumih/turbo-fieldfare"
+            self._fetch_single().raw_data["html_url"] == "https://github.com/drumih/turbo-fieldfare"
         )
 
     def test_raw_data_topics(self):
@@ -844,9 +839,7 @@ class TestRegistryIntegration:
         import arip.sources  # noqa: F401
 
         settings = _minimal_settings(tmp_path)
-        object.__setattr__(
-            settings.sources, "github_trending", SourceConfig(enabled=False)
-        )
+        object.__setattr__(settings.sources, "github_trending", SourceConfig(enabled=False))
         registry = SourceRegistry(settings)
 
         assert registry.get_source("github_trending") is None
@@ -858,9 +851,7 @@ class TestRegistryIntegration:
         import arip.sources  # noqa: F401
 
         settings = _minimal_settings(tmp_path)
-        object.__setattr__(
-            settings.sources, "github_trending", SourceConfig(enabled=False)
-        )
+        object.__setattr__(settings.sources, "github_trending", SourceConfig(enabled=False))
         registry = SourceRegistry(settings)
         source_ids = [s.source_id for s in registry.get_active_sources()]
 

@@ -406,10 +406,7 @@ class TestNormalize:
     def test_normalize_primary_url(self):
         """primary_url is the model page on the Hub (no /spaces segment)."""
         result = _default_source().normalize(_raw_payload_from_dict(_VALID_RAW))
-        assert (
-            result.primary_url
-            == "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2"
-        )
+        assert result.primary_url == "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2"
 
     def test_normalize_authors_is_owning_account(self):
         """authors holds the owning user/organisation."""
@@ -511,9 +508,7 @@ class TestNormalize:
         long_title = "X" * 300
         data = {**_VALID_RAW, "title": long_title, "external_id": "org/m"}
         result = _default_source().normalize(_raw_payload_from_dict(data))
-        expected = hashlib.sha256(
-            f"huggingface_models:org/m:{'X' * 200}".encode()
-        ).hexdigest()
+        expected = hashlib.sha256(f"huggingface_models:org/m:{'X' * 200}".encode()).hexdigest()
         assert result.content_hash == expected
 
     def test_normalize_raw_payload_is_json_of_raw_data(self):
@@ -607,8 +602,7 @@ class TestPayloadStructure:
     def test_raw_data_external_id(self):
         """raw_data['external_id'] is the top-level 'id'."""
         assert (
-            self._fetch_single().raw_data["external_id"]
-            == "sentence-transformers/all-MiniLM-L6-v2"
+            self._fetch_single().raw_data["external_id"] == "sentence-transformers/all-MiniLM-L6-v2"
         )
 
     def test_raw_data_title_equals_external_id(self):
@@ -666,8 +660,7 @@ class TestPayloadStructure:
 
     def test_raw_data_missing_counts_default_to_zero(self):
         """Absent downloads/likes become 0 rather than raising."""
-        modified = {k: v for k, v in _SINGLE_ENTRY.items()
-                    if k not in ("downloads", "likes")}
+        modified = {k: v for k, v in _SINGLE_ENTRY.items() if k not in ("downloads", "likes")}
         raw = self._fetch_single(json.dumps([modified])).raw_data
         assert raw["downloads"] == 0
         assert raw["likes"] == 0
@@ -724,9 +717,7 @@ class TestRegistryIntegration:
         import arip.sources  # noqa: F401
 
         settings = _minimal_settings(tmp_path)
-        object.__setattr__(
-            settings.sources, "huggingface_models", SourceConfig(enabled=False)
-        )
+        object.__setattr__(settings.sources, "huggingface_models", SourceConfig(enabled=False))
         registry = SourceRegistry(settings)
 
         assert registry.get_source("huggingface_models") is None

@@ -481,9 +481,7 @@ class TestNormalize:
         payload = _raw_payload_from_dict(data)
         result = HuggingFacePapersSource(config=None).normalize(payload)
 
-        expected = hashlib.sha256(
-            f"huggingface_papers:2401.12345:{'X' * 200}".encode()
-        ).hexdigest()
+        expected = hashlib.sha256(f"huggingface_papers:2401.12345:{'X' * 200}".encode()).hexdigest()
         assert result.content_hash == expected
 
     def test_normalize_raw_payload_is_json_of_raw_data(self):
@@ -699,9 +697,7 @@ class TestRegistryIntegration:
         import arip.sources  # noqa: F401
 
         settings = _minimal_settings(tmp_path)
-        object.__setattr__(
-            settings.sources, "huggingface_papers", SourceConfig(enabled=False)
-        )
+        object.__setattr__(settings.sources, "huggingface_papers", SourceConfig(enabled=False))
         registry = SourceRegistry(settings)
 
         assert registry.get_source("huggingface_papers") is None

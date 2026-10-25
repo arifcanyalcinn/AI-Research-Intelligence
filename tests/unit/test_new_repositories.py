@@ -91,9 +91,7 @@ def test_create_payload_returns_row_with_id(
     payload_repo: RawPayloadRepository, item_id: int
 ) -> None:
     """create() inserts a row and returns it with a populated id."""
-    row = payload_repo.create(
-        {"item_id": item_id, "source_id": "arxiv", "payload": "{}"}
-    )
+    row = payload_repo.create({"item_id": item_id, "source_id": "arxiv", "payload": "{}"})
     assert row.id is not None
     assert row.id > 0
 
@@ -103,9 +101,7 @@ def test_create_payload_persists_all_given_fields(
 ) -> None:
     """The stored row carries the item_id, source_id and payload supplied."""
     raw = json.dumps({"title": "A paper", "id": "2401.12345"})
-    row = payload_repo.create(
-        {"item_id": item_id, "source_id": "arxiv", "payload": raw}
-    )
+    row = payload_repo.create({"item_id": item_id, "source_id": "arxiv", "payload": raw})
 
     stored = db_session.get(RawSourcePayload, row.id)
     assert stored.item_id == item_id
@@ -117,7 +113,7 @@ def test_payload_round_trips_as_json(
     payload_repo: RawPayloadRepository, db_session: Session, item_id: int
 ) -> None:
     """A JSON payload survives storage and can be parsed back (SDS §4.7 replay)."""
-    original = {"title": "Curly {braces} and \"quotes\"", "authors": ["A", "B"]}
+    original = {"title": 'Curly {braces} and "quotes"', "authors": ["A", "B"]}
     row = payload_repo.create(
         {
             "item_id": item_id,
@@ -134,9 +130,7 @@ def test_create_payload_defaults_fetched_at(
     payload_repo: RawPayloadRepository, item_id: int
 ) -> None:
     """fetched_at is populated automatically when the caller omits it."""
-    row = payload_repo.create(
-        {"item_id": item_id, "source_id": "arxiv", "payload": "{}"}
-    )
+    row = payload_repo.create({"item_id": item_id, "source_id": "arxiv", "payload": "{}"})
     assert isinstance(row.fetched_at, datetime)
 
 
@@ -156,13 +150,9 @@ def test_create_payload_honours_explicit_fetched_at(
     assert row.fetched_at == when
 
 
-def test_fetch_url_is_null_when_absent(
-    payload_repo: RawPayloadRepository, item_id: int
-) -> None:
+def test_fetch_url_is_null_when_absent(payload_repo: RawPayloadRepository, item_id: int) -> None:
     """fetch_url stays NULL when not supplied — the documented TD-012 state."""
-    row = payload_repo.create(
-        {"item_id": item_id, "source_id": "arxiv", "payload": "{}"}
-    )
+    row = payload_repo.create({"item_id": item_id, "source_id": "arxiv", "payload": "{}"})
     assert row.fetch_url is None
 
 
@@ -174,16 +164,10 @@ def test_create_payload_does_not_commit(
     assert db_session.in_transaction()
 
 
-def test_multiple_payloads_for_one_item(
-    payload_repo: RawPayloadRepository, item_id: int
-) -> None:
+def test_multiple_payloads_for_one_item(payload_repo: RawPayloadRepository, item_id: int) -> None:
     """The table accepts more than one payload row per item."""
-    first = payload_repo.create(
-        {"item_id": item_id, "source_id": "arxiv", "payload": '{"n": 1}'}
-    )
-    second = payload_repo.create(
-        {"item_id": item_id, "source_id": "arxiv", "payload": '{"n": 2}'}
-    )
+    first = payload_repo.create({"item_id": item_id, "source_id": "arxiv", "payload": '{"n": 1}'})
+    second = payload_repo.create({"item_id": item_id, "source_id": "arxiv", "payload": '{"n": 2}'})
     assert first.id != second.id
 
 
@@ -239,9 +223,7 @@ def test_complete_sets_status_completed(
     assert stored.status == PipelineRunStatus.COMPLETED.value
 
 
-def test_complete_stamps_completed_at(
-    run_repo: PipelineRunRepository, db_session: Session
-) -> None:
+def test_complete_stamps_completed_at(run_repo: PipelineRunRepository, db_session: Session) -> None:
     """complete() records when the run finished."""
     run = run_repo.create()
     run_repo.complete(run.id)
@@ -262,9 +244,7 @@ def test_complete_unknown_run_id_does_not_raise(
 # ---------------------------------------------------------------------------
 
 
-def test_fail_sets_status_failed(
-    run_repo: PipelineRunRepository, db_session: Session
-) -> None:
+def test_fail_sets_status_failed(run_repo: PipelineRunRepository, db_session: Session) -> None:
     """fail() moves the run to FAILED."""
     run = run_repo.create()
     run_repo.fail(run.id, "collection raised")
@@ -273,9 +253,7 @@ def test_fail_sets_status_failed(
     assert stored.status == PipelineRunStatus.FAILED.value
 
 
-def test_fail_records_error_summary(
-    run_repo: PipelineRunRepository, db_session: Session
-) -> None:
+def test_fail_records_error_summary(run_repo: PipelineRunRepository, db_session: Session) -> None:
     """The reason is stored in pipeline_runs.error_summary (SDS §4.6)."""
     run = run_repo.create()
     run_repo.fail(run.id, "collection raised")
@@ -284,9 +262,7 @@ def test_fail_records_error_summary(
     assert stored.error_summary == "collection raised"
 
 
-def test_fail_stamps_completed_at(
-    run_repo: PipelineRunRepository, db_session: Session
-) -> None:
+def test_fail_stamps_completed_at(run_repo: PipelineRunRepository, db_session: Session) -> None:
     """A run that failed during execution did finish, at a known time."""
     run = run_repo.create()
     run_repo.fail(run.id, "boom")
@@ -325,9 +301,7 @@ def test_reconcile_marks_running_run_failed(
     assert stored.status == PipelineRunStatus.FAILED.value
 
 
-def test_reconcile_records_a_reason(
-    run_repo: PipelineRunRepository, db_session: Session
-) -> None:
+def test_reconcile_records_a_reason(run_repo: PipelineRunRepository, db_session: Session) -> None:
     """The reconciled run explains why it is FAILED rather than leaving it blank."""
     run = run_repo.create()
     run_repo.reconcile_crashed()
@@ -404,12 +378,8 @@ def test_new_run_after_reconcile_is_running(
 
     fresh = run_repo.create()
 
-    assert db_session.get(PipelineRun, crashed.id).status == (
-        PipelineRunStatus.FAILED.value
-    )
-    assert db_session.get(PipelineRun, fresh.id).status == (
-        PipelineRunStatus.RUNNING.value
-    )
+    assert db_session.get(PipelineRun, crashed.id).status == (PipelineRunStatus.FAILED.value)
+    assert db_session.get(PipelineRun, fresh.id).status == (PipelineRunStatus.RUNNING.value)
 
 
 # ---------------------------------------------------------------------------

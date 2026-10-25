@@ -26,12 +26,12 @@ import pytest
 np = pytest.importorskip(
     "numpy",
     reason="numpy arrives with the optional `embedding` extra; "
-    "install with `pip install -e \".[embedding]\"` to run these tests",
+    'install with `pip install -e ".[embedding]"` to run these tests',
 )
 pytest.importorskip(
     "usearch",
     reason="usearch arrives with the optional `embedding` extra; "
-    "install with `pip install -e \".[embedding]\"` to run these tests",
+    'install with `pip install -e ".[embedding]"` to run these tests',
 )
 
 from arip.config import DedupSettings  # noqa: E402
@@ -182,9 +182,7 @@ def test_threshold_is_inclusive_at_exact_equality(tmp_path: Path) -> None:
     semantic_threshold`). Without this test that operator is unpinned: changing
     it to `>` leaves every other test in this file passing.
     """
-    dedup = SemanticDeduplicator(
-        settings(tmp_path, semantic_threshold=1.0), embedding_dim=DIM
-    )
+    dedup = SemanticDeduplicator(settings(tmp_path, semantic_threshold=1.0), embedding_dim=DIM)
     dedup.load_index()
     dedup.add(1, base_vector())
 
@@ -211,9 +209,7 @@ def test_just_below_threshold_is_not_a_duplicate(dedup: SemanticDeduplicator) ->
 
 def test_threshold_comes_from_configuration(tmp_path: Path) -> None:
     """A run configured at 0.50 must treat 0.60 as a duplicate."""
-    dedup = SemanticDeduplicator(
-        settings(tmp_path, semantic_threshold=0.50), embedding_dim=DIM
-    )
+    dedup = SemanticDeduplicator(settings(tmp_path, semantic_threshold=0.50), embedding_dim=DIM)
     dedup.load_index()
     dedup.add(1, base_vector())
 
@@ -381,9 +377,7 @@ def test_a_reloaded_index_still_detects_duplicates(tmp_path: Path) -> None:
 def test_load_creates_a_new_index_when_no_file_exists(tmp_path: Path) -> None:
     """§5.7: "loads from disk or creates new". First run is not an error."""
     path = tmp_path / "absent.usearch"
-    dedup = SemanticDeduplicator(
-        settings(tmp_path, ann_index_path=str(path)), embedding_dim=DIM
-    )
+    dedup = SemanticDeduplicator(settings(tmp_path, ann_index_path=str(path)), embedding_dim=DIM)
 
     dedup.load_index()
 
@@ -394,9 +388,7 @@ def test_load_creates_a_new_index_when_no_file_exists(tmp_path: Path) -> None:
 def test_save_creates_the_parent_directory(tmp_path: Path) -> None:
     """container.py makes data/ at startup, but tests and operators need this too."""
     path = tmp_path / "nested" / "deeper" / "ann_index.usearch"
-    dedup = SemanticDeduplicator(
-        settings(tmp_path, ann_index_path=str(path)), embedding_dim=DIM
-    )
+    dedup = SemanticDeduplicator(settings(tmp_path, ann_index_path=str(path)), embedding_dim=DIM)
     dedup.load_index()
     dedup.add(1, base_vector())
 
@@ -491,7 +483,7 @@ def test_malformed_vector_skips_the_check_rather_than_raising(
 
 
 def test_malformed_vector_does_not_stop_a_later_item(dedup: SemanticDeduplicator) -> None:
-    """"Continue" means the run goes on, not that the deduplicator is spent."""
+    """ "Continue" means the run goes on, not that the deduplicator is spent."""
     dedup.add(1, base_vector())
     dedup.is_duplicate(np.ones(3, dtype=np.float32), item_id=2)
 

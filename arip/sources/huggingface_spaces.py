@@ -431,8 +431,7 @@ class HuggingFaceSpacesSource(BaseSource):
         title: str = data.get("title", "").strip()
         if not title:
             raise SourceError(
-                f"HuggingFace Space '{payload.external_id}' is missing "
-                "required field: title"
+                f"HuggingFace Space '{payload.external_id}' is missing required field: title"
             )
 
         external_id: str = data.get("external_id", "").strip()

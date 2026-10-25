@@ -181,8 +181,7 @@ class SentenceTransformersBackend(BaseEmbedder):
             ) from exc
         except Exception as exc:
             raise EmbeddingError(
-                f"Embedding failed for {len(texts)} texts with "
-                f"'{self._model_name}': {exc}"
+                f"Embedding failed for {len(texts)} texts with '{self._model_name}': {exc}"
             ) from exc
 
         return np.asarray(vectors, dtype=np.float32)

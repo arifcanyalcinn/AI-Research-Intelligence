@@ -179,9 +179,7 @@ def add_item(
             "primary_url": "https://example.org/x",
             "collected_at": datetime(2026, 9, 1, 12, 0, 0),
             "importance_score": 0.6,
-            "signal_breakdown": json.dumps(
-                RANKING_SIGNALS if breakdown is None else breakdown
-            ),
+            "signal_breakdown": json.dumps(RANKING_SIGNALS if breakdown is None else breakdown),
             "embedding_computed_at": embedding_computed_at,
         }
     )
@@ -237,7 +235,9 @@ def test_novelty_merge_preserves_the_ranking_signals(
     assert len(merged) == len(RANKING_SIGNALS) + 1
 
 
-def test_novelty_is_added_not_substituted(db_session: Session, item_repo: ItemRepository, make_stage) -> None:
+def test_novelty_is_added_not_substituted(
+    db_session: Session, item_repo: ItemRepository, make_stage
+) -> None:
     """An explicit guard against `{"novelty": d}` replacing the object."""
     item = add_item(item_repo, breakdown={"recency": 0.11, "authority": 0.22})
     stage, _, _ = make_stage()
@@ -249,7 +249,9 @@ def test_novelty_is_added_not_substituted(db_session: Session, item_repo: ItemRe
     assert merged["authority"] == 0.22
 
 
-def test_novelty_is_the_ann_distance(db_session: Session, item_repo: ItemRepository, make_stage) -> None:
+def test_novelty_is_the_ann_distance(
+    db_session: Session, item_repo: ItemRepository, make_stage
+) -> None:
     """§5.5: "the ANN distance to nearest neighbor" — distance, not similarity."""
     item = add_item(item_repo)
     dedup = FakeDeduplicator(verdicts=[(False, 7)], similarities=[0.25])
@@ -285,9 +287,7 @@ def test_a_missing_breakdown_does_not_stop_the_item(
 
     db_session.expire_all()
     assert db_session.get(Item, item.id).status == ItemStatus.ENRICHED.value
-    assert breakdown_of(db_session, item.id) == {
-        "novelty": NOVELTY_WITHOUT_NEIGHBOUR
-    }
+    assert breakdown_of(db_session, item.id) == {"novelty": NOVELTY_WITHOUT_NEIGHBOUR}
 
 
 def test_an_unparseable_breakdown_does_not_stop_the_item(
@@ -317,12 +317,12 @@ def test_a_non_object_breakdown_does_not_stop_the_item(
 
     stage.run(RUN_ID)
 
-    assert breakdown_of(db_session, item.id) == {
-        "novelty": NOVELTY_WITHOUT_NEIGHBOUR
-    }
+    assert breakdown_of(db_session, item.id) == {"novelty": NOVELTY_WITHOUT_NEIGHBOUR}
 
 
-def test_importance_score_is_not_touched(db_session: Session, item_repo: ItemRepository, make_stage) -> None:
+def test_importance_score_is_not_touched(
+    db_session: Session, item_repo: ItemRepository, make_stage
+) -> None:
     """AD-19: novelty is recorded, never scored."""
     item = add_item(item_repo)
     stage, _, _ = make_stage()
@@ -360,9 +360,7 @@ def test_a_duplicate_is_never_added_to_the_index(
     """§5.7's reconciliation excludes DUPLICATE, so an indexed one is unrepairable."""
     survivor = add_item(item_repo, external_id="s", status=ItemStatus.ENRICHED)
     add_item(item_repo, external_id="d")
-    stage, _, dedup = make_stage(
-        deduplicator=FakeDeduplicator(verdicts=[(True, survivor.id)])
-    )
+    stage, _, dedup = make_stage(deduplicator=FakeDeduplicator(verdicts=[(True, survivor.id)]))
 
     stage.run(RUN_ID)
 
@@ -374,7 +372,9 @@ def test_a_duplicate_is_never_added_to_the_index(
 # ---------------------------------------------------------------------------
 
 
-def test_a_passing_item_reaches_enriched(db_session: Session, item_repo: ItemRepository, make_stage) -> None:
+def test_a_passing_item_reaches_enriched(
+    db_session: Session, item_repo: ItemRepository, make_stage
+) -> None:
     item = add_item(item_repo)
     stage, _, _ = make_stage()
 
@@ -386,7 +386,9 @@ def test_a_passing_item_reaches_enriched(db_session: Session, item_repo: ItemRep
     assert stored.enriched_at is not None
 
 
-def test_embedding_metadata_is_written(db_session: Session, item_repo: ItemRepository, make_stage) -> None:
+def test_embedding_metadata_is_written(
+    db_session: Session, item_repo: ItemRepository, make_stage
+) -> None:
     """§3.3 RANKED -> EMBEDDED sets both columns; EMBEDDED has no auto-timestamp."""
     item = add_item(item_repo)
     stage, _, _ = make_stage()
@@ -422,9 +424,7 @@ def test_a_duplicate_reaches_duplicate_with_its_survivor(
     """§3.3 EMBEDDED -> DUPLICATE sets duplicate_of_id and is_semantic_duplicate."""
     survivor = add_item(item_repo, external_id="s", status=ItemStatus.ENRICHED)
     dup = add_item(item_repo, external_id="d")
-    stage, _, _ = make_stage(
-        deduplicator=FakeDeduplicator(verdicts=[(True, survivor.id)])
-    )
+    stage, _, _ = make_stage(deduplicator=FakeDeduplicator(verdicts=[(True, survivor.id)]))
 
     stage.run(RUN_ID)
 
@@ -441,9 +441,7 @@ def test_a_duplicate_still_records_its_embedding(
     """It passed through EMBEDDED, so the columns §3.3 sets there are written."""
     survivor = add_item(item_repo, external_id="s", status=ItemStatus.ENRICHED)
     dup = add_item(item_repo, external_id="d")
-    stage, _, _ = make_stage(
-        deduplicator=FakeDeduplicator(verdicts=[(True, survivor.id)])
-    )
+    stage, _, _ = make_stage(deduplicator=FakeDeduplicator(verdicts=[(True, survivor.id)]))
 
     stage.run(RUN_ID)
 
@@ -451,7 +449,9 @@ def test_a_duplicate_still_records_its_embedding(
     assert db_session.get(Item, dup.id).embedding_computed_at is not None
 
 
-def test_an_embedding_error_fails_the_item(db_session: Session, item_repo: ItemRepository, make_stage) -> None:
+def test_an_embedding_error_fails_the_item(
+    db_session: Session, item_repo: ItemRepository, make_stage
+) -> None:
     """§3.3 RANKED -> FAILED, embed_error."""
     item = add_item(item_repo)
     stage, _, _ = make_stage(embedder=FakeEmbedder(error=EmbeddingError("no model")))
@@ -465,11 +465,11 @@ def test_an_embedding_error_fails_the_item(db_session: Session, item_repo: ItemR
     assert "no model" in stored.failure_reason
 
 
-def test_a_failed_item_is_not_indexed(db_session: Session, item_repo: ItemRepository, make_stage) -> None:
+def test_a_failed_item_is_not_indexed(
+    db_session: Session, item_repo: ItemRepository, make_stage
+) -> None:
     item = add_item(item_repo)
-    stage, _, dedup = make_stage(
-        embedder=FakeEmbedder(error=EmbeddingError("boom"))
-    )
+    stage, _, dedup = make_stage(embedder=FakeEmbedder(error=EmbeddingError("boom")))
 
     stage.run(RUN_ID)
 
@@ -477,7 +477,9 @@ def test_a_failed_item_is_not_indexed(db_session: Session, item_repo: ItemReposi
     assert item.id not in dedup.indexed
 
 
-def test_only_ranked_items_are_processed(db_session: Session, item_repo: ItemRepository, make_stage) -> None:
+def test_only_ranked_items_are_processed(
+    db_session: Session, item_repo: ItemRepository, make_stage
+) -> None:
     """COLLECTED, FILTERED and ENRICHED items are not this stage's work."""
     ranked = add_item(item_repo, external_id="r")
     collected = add_item(item_repo, external_id="c", status=ItemStatus.COLLECTED)
@@ -509,7 +511,9 @@ def test_embedding_text_is_title_then_abstract(
     assert embedder.texts == ["Attention Is All You Need. We propose."]
 
 
-def test_embedding_text_without_an_abstract(db_session: Session, item_repo: ItemRepository, make_stage) -> None:
+def test_embedding_text_without_an_abstract(
+    db_session: Session, item_repo: ItemRepository, make_stage
+) -> None:
     """TD-003: HF Models and Spaces have abstract=None, so the title carries it."""
     add_item(item_repo, title="org/model-name", abstract=None)
     stage, embedder, _ = make_stage()
@@ -674,9 +678,7 @@ def test_reconciliation_runs_before_the_new_items(
 
     assert dedup.calls[0] == ("add", lost.id)
     assert ("is_duplicate", fresh.id) in dedup.calls
-    assert dedup.calls.index(("add", lost.id)) < dedup.calls.index(
-        ("is_duplicate", fresh.id)
-    )
+    assert dedup.calls.index(("add", lost.id)) < dedup.calls.index(("is_duplicate", fresh.id))
 
 
 def test_a_reconciliation_failure_does_not_abort_the_run(
@@ -695,9 +697,7 @@ def test_a_reconciliation_failure_does_not_abort_the_run(
         embedding_computed_at=datetime(2026, 9, 1, 9, 0, 0),
     )
     fresh = add_item(item_repo, external_id="new")
-    stage, _, dedup = make_stage(
-        embedder=FakeEmbedder(error=EmbeddingError("model gone"))
-    )
+    stage, _, dedup = make_stage(embedder=FakeEmbedder(error=EmbeddingError("model gone")))
 
     result = stage.run(RUN_ID)
 

@@ -26,7 +26,7 @@ import pytest
 np = pytest.importorskip(
     "numpy",
     reason="numpy arrives with the optional `embedding` extra; "
-    "install with `pip install -e \".[embedding]\"` to run these tests",
+    'install with `pip install -e ".[embedding]"` to run these tests',
 )
 
 from arip.backends.embeddings import sentence_transformers_backend as st_module  # noqa: E402

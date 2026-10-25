@@ -90,13 +90,13 @@ class Item(Base):
 
     # Extracted metadata (populated by normalize())
     title: Mapped[str | None] = mapped_column(Text, nullable=True)
-    authors: Mapped[str | None] = mapped_column(Text, nullable=True)         # JSON list
-    institutions: Mapped[str | None] = mapped_column(Text, nullable=True)    # JSON list
+    authors: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON list
+    institutions: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON list
     abstract: Mapped[str | None] = mapped_column(Text, nullable=True)
     primary_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     additional_urls: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON list
     published_date: Mapped[datetime | None] = mapped_column(Date, nullable=True)
-    topics: Mapped[str | None] = mapped_column(Text, nullable=True)          # JSON list
+    topics: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON list
     source_signals: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON dict
 
     # Embedding tracking (ANN index file is the sole vector store)
@@ -161,7 +161,7 @@ class GeneratedContent(Base):
     prompt_template_id: Mapped[str] = mapped_column(String(64), nullable=False)
     full_prompt: Mapped[str] = mapped_column(Text, nullable=False)
     raw_output: Mapped[str] = mapped_column(Text, nullable=False)
-    parsed_segments: Mapped[str | None] = mapped_column(Text, nullable=True)   # JSON
+    parsed_segments: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON
     full_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     validation_passed: Mapped[bool] = mapped_column(Boolean, nullable=False)
     validation_errors: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON list
@@ -226,10 +226,7 @@ class ReviewRecord(Base):
     )
 
     def __repr__(self) -> str:
-        return (
-            f"<ReviewRecord id={self.id} item_id={self.item_id} "
-            f"decision={self.decision}>"
-        )
+        return f"<ReviewRecord id={self.id} item_id={self.item_id} decision={self.decision}>"
 
 
 # ---------------------------------------------------------------------------

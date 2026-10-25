@@ -235,9 +235,7 @@ class CollectStage:
         )
         logger.info("item_collected", item_id=item.id)
 
-    def _record_normalization_failure(
-        self, payload: RawSourcePayload, error: str
-    ) -> None:
+    def _record_normalization_failure(self, payload: RawSourcePayload, error: str) -> None:
         """Create an item for an unnormalizable payload and mark it FAILED.
 
         The payload could not be normalized, so the canonical metadata is

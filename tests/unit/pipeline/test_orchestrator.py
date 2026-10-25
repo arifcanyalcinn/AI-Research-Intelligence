@@ -376,9 +376,7 @@ def test_collected_items_are_committed(make_orchestrator, session_factory) -> No
     assert items[0].id is not None
 
 
-def test_second_run_skips_already_collected_items(
-    make_orchestrator, session_factory
-) -> None:
+def test_second_run_skips_already_collected_items(make_orchestrator, session_factory) -> None:
     """Running twice does not duplicate items — the dedup check spans runs."""
     orchestrator = make_orchestrator(_StubSource([make_payload()]))
     orchestrator.run_once()
@@ -392,9 +390,7 @@ def test_second_run_skips_already_collected_items(
 # ---------------------------------------------------------------------------
 
 
-def test_crashed_run_is_reconciled_before_new_run(
-    make_orchestrator, session_factory
-) -> None:
+def test_crashed_run_is_reconciled_before_new_run(make_orchestrator, session_factory) -> None:
     """A row left RUNNING from a dead process becomes FAILED at startup."""
     with session_scope(session_factory) as session:
         crashed = PipelineRunRepository(session).create()
@@ -406,9 +402,7 @@ def test_crashed_run_is_reconciled_before_new_run(
     assert runs[crashed_id].status == PipelineRunStatus.FAILED.value
 
 
-def test_reconciled_run_keeps_null_completed_at(
-    make_orchestrator, session_factory
-) -> None:
+def test_reconciled_run_keeps_null_completed_at(make_orchestrator, session_factory) -> None:
     """The time of the crash is unknown, so none is invented."""
     with session_scope(session_factory) as session:
         crashed_id = PipelineRunRepository(session).create().id
@@ -419,9 +413,7 @@ def test_reconciled_run_keeps_null_completed_at(
     assert runs[crashed_id].completed_at is None
 
 
-def test_new_run_proceeds_after_reconciliation(
-    make_orchestrator, session_factory
-) -> None:
+def test_new_run_proceeds_after_reconciliation(make_orchestrator, session_factory) -> None:
     """Reconciliation does not block the new run — it clears the way for it."""
     with session_scope(session_factory) as session:
         PipelineRunRepository(session).create()
@@ -457,9 +449,7 @@ def test_health_check_called_once_per_active_source(make_orchestrator) -> None:
     assert b.health_calls == 1
 
 
-def test_unhealthy_source_does_not_stop_the_run(
-    make_orchestrator, session_factory
-) -> None:
+def test_unhealthy_source_does_not_stop_the_run(make_orchestrator, session_factory) -> None:
     """An unhealthy report is logged; collection still proceeds."""
     source = _StubSource(
         [make_payload()],
@@ -472,9 +462,7 @@ def test_unhealthy_source_does_not_stop_the_run(
     assert all_runs(session_factory)[0].status == PipelineRunStatus.COMPLETED.value
 
 
-def test_health_check_exception_does_not_stop_the_run(
-    make_orchestrator, session_factory
-) -> None:
+def test_health_check_exception_does_not_stop_the_run(make_orchestrator, session_factory) -> None:
     """A health_check() that raises is contained — collection is unaffected."""
     source = _StubSource([make_payload()], health_error=RuntimeError("probe blew up"))
 
@@ -501,9 +489,7 @@ def test_health_check_failure_of_one_source_does_not_skip_another(
 # ---------------------------------------------------------------------------
 
 
-def test_source_fetch_failure_still_completes_the_run(
-    make_orchestrator, session_factory
-) -> None:
+def test_source_fetch_failure_still_completes_the_run(make_orchestrator, session_factory) -> None:
     """A source-level failure is contained by CollectStage, so the run completes."""
     make_orchestrator(_StubSource(fetch_error=RuntimeError("network down"))).run_once()
 
@@ -560,9 +546,7 @@ def test_failed_run_is_reconcilable_on_the_next_start(session_factory) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_collected_items_are_ranked_in_the_same_run(
-    make_orchestrator, session_factory
-) -> None:
+def test_collected_items_are_ranked_in_the_same_run(make_orchestrator, session_factory) -> None:
     """Ranking runs in the run that collected the items.
 
     Superseded assertion, Batch 9: this test previously asserted that every
@@ -588,54 +572,40 @@ def test_collected_items_are_ranked_in_the_same_run(
     assert all(i.status != ItemStatus.COLLECTED.value for i in items)
 
 
-def test_low_scoring_items_are_filtered_in_the_same_run(
-    make_orchestrator, session_factory
-) -> None:
+def test_low_scoring_items_are_filtered_in_the_same_run(make_orchestrator, session_factory) -> None:
     """The stub source has no configured authority, so it scores below 0.35."""
     make_orchestrator(_StubSource([make_payload()])).run_once()
 
     assert all_items(session_factory)[0].status == ItemStatus.FILTERED.value
 
 
-def test_nothing_remains_collected_after_a_run(
-    make_orchestrator, session_factory
-) -> None:
+def test_nothing_remains_collected_after_a_run(make_orchestrator, session_factory) -> None:
     """Every collected item leaves COLLECTED within the run that collected it."""
     make_orchestrator(_StubSource([make_payload("x"), make_payload("y")])).run_once()
 
-    remaining = [
-        i for i in all_items(session_factory) if i.status == ItemStatus.COLLECTED.value
-    ]
+    remaining = [i for i in all_items(session_factory) if i.status == ItemStatus.COLLECTED.value]
     assert remaining == []
 
 
 def test_ranked_items_carry_a_score(make_orchestrator, session_factory) -> None:
     """importance_score is persisted through the orchestrator path."""
-    make_orchestrator(
-        _StubSource([make_payload()]), config=ranking(min_score=0.0)
-    ).run_once()
+    make_orchestrator(_StubSource([make_payload()]), config=ranking(min_score=0.0)).run_once()
 
     item = all_items(session_factory)[0]
     assert item.importance_score is not None
     assert item.signal_breakdown is not None
 
 
-def test_run_completes_when_there_is_nothing_to_rank(
-    make_orchestrator, session_factory
-) -> None:
+def test_run_completes_when_there_is_nothing_to_rank(make_orchestrator, session_factory) -> None:
     """An empty collection leaves ranking with no work and the run still closes."""
     make_orchestrator().run_once()
 
     assert all_runs(session_factory)[0].status == PipelineRunStatus.COMPLETED.value
 
 
-def test_second_run_does_not_rerank_items(
-    make_orchestrator, session_factory
-) -> None:
+def test_second_run_does_not_rerank_items(make_orchestrator, session_factory) -> None:
     """Items ranked by the first run are not revisited by the second."""
-    orchestrator = make_orchestrator(
-        _StubSource([make_payload()]), config=ranking(min_score=0.0)
-    )
+    orchestrator = make_orchestrator(_StubSource([make_payload()]), config=ranking(min_score=0.0))
     orchestrator.run_once()
     first = all_items(session_factory)[0].ranked_at
 
@@ -649,13 +619,9 @@ def test_second_run_does_not_rerank_items(
 # ---------------------------------------------------------------------------
 
 
-def test_embedding_runs_after_ranking_in_the_same_run(
-    make_orchestrator, session_factory
-) -> None:
+def test_embedding_runs_after_ranking_in_the_same_run(make_orchestrator, session_factory) -> None:
     """A collected item reaches ENRICHED within the run that collected it."""
-    make_orchestrator(
-        _StubSource([make_payload("a")]), config=ranking(min_score=0.0)
-    ).run_once()
+    make_orchestrator(_StubSource([make_payload("a")]), config=ranking(min_score=0.0)).run_once()
 
     item = all_items(session_factory)[0]
     assert item.status == ItemStatus.ENRICHED.value
@@ -720,10 +686,7 @@ def test_index_is_saved_after_the_session_commits(tmp_path) -> None:  # noqa: AN
         with engine.connect() as connection:
             observed.append(
                 connection.execute(
-                    text(
-                        "SELECT COUNT(*) FROM items "
-                        "WHERE embedding_computed_at IS NOT NULL"
-                    )
+                    text("SELECT COUNT(*) FROM items WHERE embedding_computed_at IS NOT NULL")
                 ).scalar_one()
             )
 
@@ -762,22 +725,16 @@ def test_index_is_not_saved_when_there_is_nothing_to_embed(
 
 def test_filtered_items_are_never_embedded(make_orchestrator, session_factory) -> None:
     """FILTERED is terminal; the embedding stage must not pick those items up."""
-    make_orchestrator(
-        _StubSource([make_payload("a")]), config=ranking(min_score=1.1)
-    ).run_once()
+    make_orchestrator(_StubSource([make_payload("a")]), config=ranking(min_score=1.1)).run_once()
 
     item = all_items(session_factory)[0]
     assert item.status == ItemStatus.FILTERED.value
     assert item.embedding_computed_at is None
 
 
-def test_novelty_is_merged_into_the_ranking_breakdown(
-    make_orchestrator, session_factory
-) -> None:
+def test_novelty_is_merged_into_the_ranking_breakdown(make_orchestrator, session_factory) -> None:
     """End-to-end proof that ranking's signals survive the embedding stage."""
-    make_orchestrator(
-        _StubSource([make_payload("a")]), config=ranking(min_score=0.0)
-    ).run_once()
+    make_orchestrator(_StubSource([make_payload("a")]), config=ranking(min_score=0.0)).run_once()
 
     breakdown = json.loads(all_items(session_factory)[0].signal_breakdown)
     assert "novelty" in breakdown

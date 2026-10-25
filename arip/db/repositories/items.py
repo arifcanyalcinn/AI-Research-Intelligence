@@ -146,16 +146,10 @@ class ItemRepository:
         Returns:
             List of Items, oldest first.
         """
-        stmt = (
-            select(Item)
-            .where(Item.status == status.value)
-            .order_by(Item.collected_at.asc())
-        )
+        stmt = select(Item).where(Item.status == status.value).order_by(Item.collected_at.asc())
         return list(self._session.execute(stmt).scalars().all())
 
-    def get_by_status_and_language(
-        self, status: ItemStatus, language: str
-    ) -> list[Item]:
+    def get_by_status_and_language(self, status: ItemStatus, language: str) -> list[Item]:
         """Fetch items by status and language, ordered by importance_score descending.
 
         Used by generation and publishing stages to select items for processing.
@@ -174,9 +168,7 @@ class ItemRepository:
         )
         return list(self._session.execute(stmt).scalars().all())
 
-    def get_by_source_and_external_id(
-        self, source_id: str, external_id: str
-    ) -> Item | None:
+    def get_by_source_and_external_id(self, source_id: str, external_id: str) -> Item | None:
         """Look up an item by its source identifier and external ID.
 
         Args:
@@ -206,12 +198,9 @@ class ItemRepository:
         from datetime import timedelta
 
         cutoff = datetime.utcnow() - timedelta(hours=timeout_hours)
-        stmt = (
-            select(Item)
-            .where(
-                Item.status == ItemStatus.PENDING_REVIEW.value,
-                Item.review_submitted_at < cutoff,
-            )
+        stmt = select(Item).where(
+            Item.status == ItemStatus.PENDING_REVIEW.value,
+            Item.review_submitted_at < cutoff,
         )
         return list(self._session.execute(stmt).scalars().all())
 

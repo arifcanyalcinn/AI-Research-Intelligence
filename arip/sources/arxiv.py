@@ -100,9 +100,7 @@ class ArXivSource(BaseSource):
                 block in ``settings.yaml``), built-in defaults are used.
         """
         super().__init__(config)
-        self._cfg: ArxivSourceConfig = (
-            config if config is not None else ArxivSourceConfig()
-        )
+        self._cfg: ArxivSourceConfig = config if config is not None else ArxivSourceConfig()
 
     @classmethod
     def get_config_schema(cls) -> type[ArxivSourceConfig]:
@@ -335,9 +333,7 @@ class ArXivSource(BaseSource):
             if cat_el.get("term")
         ]
         primary_cat_el = entry.find("arxiv:primary_category", _NS)
-        primary_category = (
-            primary_cat_el.get("term", "") if primary_cat_el is not None else ""
-        )
+        primary_category = primary_cat_el.get("term", "") if primary_cat_el is not None else ""
 
         return {
             "external_id": external_id,

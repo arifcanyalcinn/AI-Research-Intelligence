@@ -233,9 +233,7 @@ def test_ranked_item_stores_the_signal_breakdown(make_stage, item_repo, db_sessi
     assert set(breakdown) == {"recency", "authority", "engagement", "topic"}
 
 
-def test_stored_breakdown_reproduces_the_stored_score(
-    make_stage, item_repo, db_session
-) -> None:
+def test_stored_breakdown_reproduces_the_stored_score(make_stage, item_repo, db_session) -> None:
     """The persisted breakdown multiplies out to the persisted score."""
     item = add_item(item_repo, published_date=date.today(), source_signals={"stars": 5})
 
@@ -264,9 +262,7 @@ def test_filtered_item_stores_the_score(make_stage, item_repo, db_session) -> No
     assert stored.importance_score is not None
 
 
-def test_filtered_item_stores_no_signal_breakdown(
-    make_stage, item_repo, db_session
-) -> None:
+def test_filtered_item_stores_no_signal_breakdown(make_stage, item_repo, db_session) -> None:
     """§3.5 narrows the FILTERED action to importance_score alone.
 
     The breakdown is logged rather than stored. Storing it would go beyond the
@@ -307,10 +303,15 @@ def test_scores_differ_across_items(make_stage, item_repo, db_session) -> None:
 
     This is the assertion that a stub RankStage returning 1.0 could not make.
     """
-    add_item(item_repo, published_date=date.today(), source_signals={"stars": 900},
-             external_id="popular")
-    add_item(item_repo, published_date=date(2020, 1, 1), source_signals={"stars": 1},
-             external_id="obscure")
+    add_item(
+        item_repo, published_date=date.today(), source_signals={"stars": 900}, external_id="popular"
+    )
+    add_item(
+        item_repo,
+        published_date=date(2020, 1, 1),
+        source_signals={"stars": 1},
+        external_id="obscure",
+    )
 
     make_stage(ranking(min_score=0.0)).run(RUN_ID)
 
@@ -325,8 +326,9 @@ def test_scores_differ_across_items(make_stage, item_repo, db_session) -> None:
 
 def test_only_collected_items_are_processed(make_stage, item_repo, db_session) -> None:
     """Items in other states are untouched."""
-    add_item(item_repo, status=ItemStatus.COLLECTED, published_date=date.today(),
-             external_id="fresh")
+    add_item(
+        item_repo, status=ItemStatus.COLLECTED, published_date=date.today(), external_id="fresh"
+    )
     add_item(item_repo, status=ItemStatus.FAILED, external_id="broken")
     add_item(item_repo, status=ItemStatus.ARCHIVED, external_id="done")
 
@@ -358,9 +360,7 @@ def test_empty_batch_is_a_no_op(make_stage, db_session) -> None:
     assert db_session.query(Item).count() == 0
 
 
-def test_second_run_does_not_rescore_ranked_items(
-    make_stage, item_repo, db_session
-) -> None:
+def test_second_run_does_not_rescore_ranked_items(make_stage, item_repo, db_session) -> None:
     """Once out of COLLECTED, an item is no longer this stage's business."""
     item = add_item(item_repo, published_date=date.today(), source_signals={"stars": 5})
     stage = make_stage()
@@ -374,9 +374,7 @@ def test_second_run_does_not_rescore_ranked_items(
     assert stored.importance_score == first_score
 
 
-def test_items_collected_on_an_earlier_run_are_ranked(
-    make_stage, item_repo, db_session
-) -> None:
+def test_items_collected_on_an_earlier_run_are_ranked(make_stage, item_repo, db_session) -> None:
     """Every COLLECTED item forms the batch, not only this run's arrivals."""
     add_item(item_repo, published_date=date.today(), external_id="older")
     add_item(item_repo, published_date=date.today(), external_id="newer")
@@ -395,17 +393,20 @@ def test_engagement_is_relative_to_the_other_items_in_the_run(
     make_stage, item_repo, db_session
 ) -> None:
     """The percentile is computed across the batch, so peers change the score."""
-    add_item(item_repo, source_signals={"stars": 50}, published_date=date.today(),
-             external_id="lonely")
+    add_item(
+        item_repo, source_signals={"stars": 50}, published_date=date.today(), external_id="lonely"
+    )
 
     make_stage(ranking(min_score=0.0)).run(RUN_ID)
     alone = db_session.query(Item).filter(Item.external_id == "lonely").one()
     alone_score = alone.importance_score
 
-    add_item(item_repo, source_signals={"stars": 50}, published_date=date.today(),
-             external_id="peer_a")
-    add_item(item_repo, source_signals={"stars": 5000}, published_date=date.today(),
-             external_id="peer_b")
+    add_item(
+        item_repo, source_signals={"stars": 50}, published_date=date.today(), external_id="peer_a"
+    )
+    add_item(
+        item_repo, source_signals={"stars": 5000}, published_date=date.today(), external_id="peer_b"
+    )
     make_stage(ranking(min_score=0.0)).run(RUN_ID + 1)
 
     peer_a = db_session.query(Item).filter(Item.external_id == "peer_a").one()
