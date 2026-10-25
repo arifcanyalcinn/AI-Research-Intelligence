@@ -2,6 +2,15 @@
 
 A local-first AI research aggregation and publishing platform.
 
+## Setup
+
+SQLite will not create a missing parent directory, so create the runtime
+directories before the first migration:
+
+    mkdir data
+    mkdir logs
+    alembic upgrade head
+
 ---
 
 ## Status

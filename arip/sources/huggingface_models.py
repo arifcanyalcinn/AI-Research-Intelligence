@@ -508,4 +508,3 @@ class HuggingFaceModelsSource(BaseSource):
                 is_healthy=False,
                 last_error=str(exc),
             )
-            

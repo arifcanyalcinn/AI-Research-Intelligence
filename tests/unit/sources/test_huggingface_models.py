@@ -754,4 +754,3 @@ class TestRegistryIntegration:
         from arip.interfaces import BaseSource
 
         assert HuggingFaceModelsSource in BaseSource.__subclasses__()
-        

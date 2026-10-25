@@ -19,11 +19,12 @@ Repositories API (SDS §5.4 testing strategy: "fixture payloads captured from
 real API responses").  The ~80 URL-template fields the real response carries
 are omitted; the plugin reads none of them.
 
-Tests assert SDS-required behaviour and the acquisition semantics fixed by
-SDS §5.3.1.  Values that §5.3.1 delegates to implementation (window length,
-result limit, header composition beyond the token rule) are asserted only as
-contracts — e.g. that a bounded page size is sent — not as specific numbers,
-so that tuning them does not break the suite.
+Tests assert SDS-required behaviour and the acquisition semantics chosen in
+Batch 5 (PROJECT_LOG.md, Batch 5 – Decisions; not specified by the SDS).
+Implementation values (window length, result limit, header composition beyond
+the token rule) are asserted only as contracts — e.g. that a bounded page size
+is sent — not as specific numbers, so that tuning them does not break the
+suite.
 
 Test coverage:
   - class attributes: source_id, source_type, get_config_schema.
@@ -32,9 +33,9 @@ Test coverage:
     returns []), HTTP 429 (retried 3×, returns []), HTTP 401 (1 attempt,
     returns []), HTTP 403 (returns []), HTTP 500 (retried 3×, returns []),
     entry without full_name skipped.
-  - §5.3.1 acquisition semantics: correct endpoint; recently-created
+  - Batch 5 acquisition semantics: correct endpoint; recently-created
     selection; ordering by stars descending; bounded single-page request.
-  - §5.3.1 auth rule: no Authorization without a token; Bearer with one;
+  - SDS §5.3.1 optional-token rule: no Authorization without a token; Bearer with one;
     blank token treated as absent; unauthenticated fetch still works.
   - normalize(): every canonical field, SourceError paths, content_hash.
   - payload structure: extraction from a real-shaped response.
@@ -399,17 +400,16 @@ class TestFetch:
 
 
 # ---------------------------------------------------------------------------
-# SDS §5.3.1 acquisition semantics
+# Batch 5 acquisition semantics (not specified by the SDS)
 # ---------------------------------------------------------------------------
 
 
 class TestAcquisitionSemantics:
-    """Verify the acquisition semantics mandated by SDS §5.3.1.
+    """Verify the acquisition semantics chosen in Batch 5:
 
-    "MUST use the GitHub REST Search Repositories API
-     (GET https://api.github.com/search/repositories) to approximate GitHub
-     Trending by selecting recently created repositories and ordering the
-     results by star count in descending order."
+    "GitHub Trending uses the GitHub REST Search API as the data source."
+    "Trending is approximated using repository creation recency and
+     descending star count."
     """
 
     def _captured_url(self) -> httpx.URL:
@@ -451,14 +451,14 @@ class TestAcquisitionSemantics:
     def test_requests_a_bounded_page_size(self):
         """A positive page size within the API maximum is requested.
 
-        The exact value is an implementation decision under §5.3.1, so only the
+        The exact value is an implementation decision (D-005 module constant), so only the
         bound is asserted.
         """
         per_page = int(self._captured_url().params["per_page"])
         assert 0 < per_page <= 100
 
     def test_single_request_per_fetch(self):
-        """No pagination — one request per run (implementation decision, §5.3.1)."""
+        """No pagination — one request per run (implementation decision, Batch 5)."""
         with respx.mock as mock:
             route = mock.route(url__startswith=GITHUB_SEARCH_URL).mock(
                 return_value=httpx.Response(200, text=TWO_ITEM_RESPONSE)
@@ -475,9 +475,11 @@ class TestAcquisitionSemantics:
 class TestAuthentication:
     """Verify the optional-token rule in SDS §5.3.1.
 
-    "MAY use the optional ARIP_GITHUB_TOKEN for authenticated GitHub API
-     requests when the environment variable is available; otherwise it MUST
-     operate without authentication."
+    "Source plugins MAY read their own optional authentication tokens or
+     secrets directly from os.environ. This is an exception to the strict
+     configuration injection pattern, required when the central AppSettings
+     model does not provision a specific secret. The plugin MUST function
+     gracefully if the environment variable is absent."
     """
 
     def _captured_headers(self) -> httpx.Headers:
@@ -518,7 +520,7 @@ class TestAuthentication:
         assert "authorization" not in self._captured_headers()
 
     def test_token_use_adds_no_configuration_field(self):
-        """§5.3.1 forbids new config fields for the token."""
+        """D-006: the token is not added to the frozen configuration schema (§5.15)."""
         assert not hasattr(SourceConfig(), "github_token")
         assert GitHubTrendingSource.get_config_schema() is SourceConfig
 

@@ -2,13 +2,13 @@
 GitHub Trending source plugin for ARIP.
 
 GitHub publishes no trending API — https://github.com/trending is an HTML page
-with no public JSON endpoint.  SDS §5.3.1 therefore fixes the acquisition
-semantics for this source:
+with no public JSON endpoint.  The frozen SDS does not specify how this source
+acquires data; the acquisition semantics are a project decision recorded in
+PROJECT_LOG.md, Batch 5 – Decisions:
 
-    "GitHubTrendingSource MUST use the GitHub REST Search Repositories API
-     (GET https://api.github.com/search/repositories) to approximate GitHub
-     Trending by selecting recently created repositories and ordering the
-     results by star count in descending order."
+    "GitHub Trending uses the GitHub REST Search API as the data source."
+    "Trending is approximated using repository creation recency and
+     descending star count."
 
 The response is a JSON *object* — ``{total_count, incomplete_results, items}``
 — unlike the HuggingFace endpoints, which return a bare JSON array.
@@ -18,16 +18,16 @@ this source ("Stars"), used by the engagement signal in ranking (SDS §5.5).
 
 Source authority score: 0.65 (SDS §5.5).
 
-Implementation decisions delegated by SDS §5.3.1 ("the exact recency window,
-result limit, pagination policy, request headers, and other request-level
-implementation details are implementation decisions"):
+Request-level values on which the SDS is silent, held as module constants under
+D-005 because SDS §5.15 types ``sources.github_trending`` as a plain
+``SourceConfig``:
 
 - Recency window: 7 days — see :data:`GITHUB_TRENDING_WINDOW_DAYS`.
 - Result limit: 50 — see :data:`GITHUB_TRENDING_LIMIT`.
 - Pagination: none; a single request per run, matching every existing source.
 - Headers: ``Accept`` always; ``Authorization`` only when a token is present.
 
-Per §5.3.1 none of these introduce configuration fields, and none alter the
+None of these introduce configuration fields, and none alter the
 ``BaseSource``, ``SourceConfig`` or ``SourceRegistry`` contracts.
 """
 
@@ -54,7 +54,7 @@ logger = structlog.get_logger(__name__)
 # ---------------------------------------------------------------------------
 
 GITHUB_SEARCH_URL: str = "https://api.github.com/search/repositories"
-"""GitHub REST Search Repositories endpoint, mandated by SDS §5.3.1.
+"""GitHub REST Search Repositories endpoint (Batch 5 decision; the SDS does not name an endpoint).
 
 Exposed at module level so tests can reference it without importing the class.
 """
@@ -72,23 +72,27 @@ GITHUB_ACCEPT_HEADER: str = "application/vnd.github+json"
 GITHUB_TOKEN_ENV_VAR: str = "ARIP_GITHUB_TOKEN"
 """Environment variable holding the optional GitHub API token.
 
-SDS §5.3.1: the source "MAY use the optional ``ARIP_GITHUB_TOKEN`` for
-authenticated GitHub API requests when the environment variable is available;
-otherwise it MUST operate without authentication."
+SDS §5.3.1: "Source plugins MAY read their own optional authentication tokens
+or secrets directly from ``os.environ``. This is an exception to the strict
+configuration injection pattern, required when the central ``AppSettings``
+model does not provision a specific secret. The plugin MUST function
+gracefully if the environment variable is absent."
+
+SDS §5.15 lists ``ARIP_GITHUB_TOKEN`` as "(optional, for higher rate limits)".
 
 Read from the environment rather than from ``AppSettings`` because
 ``SourceRegistry`` constructs plugins with only their own ``SourceConfig``
-block.  §5.3.1 forbids altering that contract to carry the secret.
+block (D-006).
 """
 
 GITHUB_TRENDING_SORT: str = "stars"
-"""Sort key — SDS §5.3.1 mandates ordering by star count."""
+"""Sort key — ordering by star count (Batch 5 decision)."""
 
 GITHUB_TRENDING_ORDER: str = "desc"
-"""Sort direction — SDS §5.3.1 mandates descending order."""
+"""Sort direction — descending (Batch 5 decision)."""
 
 GITHUB_TRENDING_WINDOW_DAYS: int = 7
-"""Age window defining "recently created" (SDS §5.3.1).
+"""Age window defining "recently created" (Batch 5 decision).
 
 Seven days is chosen because a longer window degrades the approximation: with
 a 30-day window the top 50 repositories by star count barely change between
@@ -97,9 +101,9 @@ seven-day sliding window rotates meaningfully while still allowing a
 repository time to accumulate stars, and the unfiltered search returns far
 more than :data:`GITHUB_TRENDING_LIMIT` results at this width.
 
-An implementation decision delegated by §5.3.1, held as a module constant
-because §5.15 types ``sources.github_trending`` as a plain ``SourceConfig``
-and §5.3.1 forbids introducing new configuration fields.
+An implementation decision on which the SDS is silent, held as a module
+constant under D-005 because §5.15 types ``sources.github_trending`` as a
+plain ``SourceConfig``.
 """
 
 GITHUB_TRENDING_LIMIT: int = 50
@@ -121,7 +125,7 @@ class GitHubTrendingSource(BaseSource):
 
     Each pipeline run queries the GitHub Search Repositories API for
     repositories created within the last :data:`GITHUB_TRENDING_WINDOW_DAYS`
-    days, ordered by star count descending (SDS §5.3.1).  Each result becomes a
+    days, ordered by star count descending (Batch 5 decision).  Each result becomes a
     :class:`~arip.entities.RawSourcePayload` whose ``raw_data`` dict stores all
     parsed fields so that normalization can be replayed without re-fetching.
 
@@ -180,8 +184,10 @@ class GitHubTrendingSource(BaseSource):
     def _build_headers() -> dict[str, str]:
         """Build request headers, adding the token only when one is available.
 
-        SDS §5.3.1 permits authenticated requests when ``ARIP_GITHUB_TOKEN`` is
-        available and requires unauthenticated operation otherwise.  A blank or
+        SDS §5.3.1 lets a plugin read its optional token from the environment
+        and requires it to function gracefully when the variable is absent: an
+        authenticated request when a token is present, an unauthenticated one
+        otherwise.  A blank or
         whitespace-only value is treated as absent, so an empty variable in the
         environment does not produce a malformed ``Authorization`` header.
 
@@ -201,8 +207,8 @@ class GitHubTrendingSource(BaseSource):
         """Build the search query selecting recently created repositories.
 
         Produces ``created:>YYYY-MM-DD`` where the date is
-        :data:`GITHUB_TRENDING_WINDOW_DAYS` days before today (UTC), satisfying
-        the "selecting recently created repositories" clause of SDS §5.3.1.
+        :data:`GITHUB_TRENDING_WINDOW_DAYS` days before today (UTC),
+        implementing the creation-recency approximation chosen in Batch 5.
         The window slides with every run, so the result set rotates instead of
         returning the same repositories indefinitely.
 
@@ -227,8 +233,8 @@ class GitHubTrendingSource(BaseSource):
         pipeline continues with remaining sources (SDS §5.3).
 
         A single request is issued per run; no pagination is performed
-        (implementation decision permitted by SDS §5.3.1, matching every
-        existing source plugin).
+        (implementation decision; the SDS is silent on pagination. Matches
+        every existing source plugin.)
 
         Returns:
             List of :class:`~arip.entities.RawSourcePayload`, one per

@@ -718,4 +718,3 @@ class TestRegistryIntegration:
 
         assert "arxiv" in source_ids
         assert "huggingface_papers" in source_ids
-        
