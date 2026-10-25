@@ -765,3 +765,44 @@ Prerequisites:
 * Working tree clean
 * TD-020 decided before generation begins — Phase 4 feeds this pool to the LLM
 * TD-019: the commented llm pin line re-pinned before it is uncommented
+
+
+---
+
+# Batch 10 – Ranking Calibration (in progress)
+
+## Scope decision (2026-10-25)
+
+Option (b), reduced scope, chosen over the full calibration.
+
+In scope:
+
+* Cheap cleanup: TD-002, TD-006 (decide), TD-008, TD-014
+* TD-016: what a source with no engagement metric receives (SDS §5.5.1 amendment)
+* TD-017: assessed in the same amendment if the analysis shows it belongs there
+* Re-scoring path for the existing pool
+* GitHub AI-topic filter: analysis question only; included if it needs no SDS
+  amendment and fits in about half a working day
+
+Deferred to after Phase 4: TD-003, TD-004, TD-005, TD-018.
+
+Rationale, measured on the 306-item ENRICHED pool:
+
+* Re-scored with arxiv engagement = 0.5, the top 50 changes from
+  35 hf_papers + 15 github (10 with zero topic match) + 0 arxiv
+  to 21 hf_papers + 26 arxiv + 3 github (1 with zero topic match).
+* huggingface_models and huggingface_spaces rank 104th at best and reach the
+  top 50 in no scenario, so TD-003/004/005/018 do not change the near-term digest.
+* Measured pace, Batches 7-9: about one working day per stage.
+  Option (b) is 4-5 working days, option (a) 7-9.
+
+Findings recorded during scoping:
+
+* `github_trending._build_query()` returns only `created:>DATE`; there is no
+  AI-topic filter. 70 of 83 github items in the pool have a topic score of 0.
+* The module docstring of `arip/sources/github_trending.py` quotes an
+  "SDS §5.3.1" rule on acquisition semantics that does not appear in
+  `docs/frozen_sds.md/frozen_sds.md`. §5.3.1 in the frozen SDS is the
+  secret-management exception.
+
+Next: Batch 10 PRE-CODE ANALYSIS, then Batch 11 = SDS Phase 4.
