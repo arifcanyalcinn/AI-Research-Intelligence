@@ -148,3 +148,44 @@ This decision applies only to optional secrets.
 The plugin must function correctly when the environment variable is absent.
 
 This decision is authorized by SDS §5.3.1.
+
+
+---
+
+## D-007
+
+The project gate in Decision 004 (historical register) is extended: every
+completed batch must also pass `ruff format --check .` with zero files that
+would be reformatted.
+
+The full gate is: `pytest`, `ruff check .`, `ruff format --check .`,
+`python -m arip check-config`.
+
+### Reason
+
+SDS §11 (Phase 0, Objective 1) lists `ruff` as "(linting + formatting)", and
+`pyproject.toml` ignores E501 because "line length handled by formatter" —
+which was untrue until Batch 10 Stage 1b, because nothing ran the formatter.
+Unformatted code accumulated to 27 files (TD-006). Enforcing the check keeps
+incidental reformatting out of later diffs, so a stage manifest's hash changes
+reflect content changes only.
+
+### Rejected Alternatives
+
+- Lint only (the previous gate) — leaves line length unenforced and lets
+  formatting drift back, so a later stage would again mix reformatting with
+  logic.
+- Running the formatter without gating on it — formatting changes would land
+  inside logic diffs.
+- `# fmt: off` / `# fmt: skip` regions to keep hand layout — scatters
+  exceptions through the code; used only by explicit ruling.
+
+### Scope
+
+Applies to every file ruff lints. `extend-exclude = ["tools"]` removes
+`tools/` from both lint and format, unchanged by this decision. Formatting is
+defined by the pinned `ruff==0.5.0`; a ruff upgrade that changes formatting is
+delivered as its own format-only stage, never inside a logic change. Line
+endings follow each file; this decision does not change them.
+
+Introduced in Batch 10, Stage 1b.
