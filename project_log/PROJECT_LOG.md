@@ -823,3 +823,15 @@ Next: Batch 10 PRE-CODE ANALYSIS, then Batch 11 = SDS Phase 4.
 - A8: ruff format adopted as standalone Stage 1b, before any logic stage.
 - A8b: "Decision 001-005" kept as the historical register; new decisions continue at D-007.
 - A9: TD-014 documentation only (mkdir data logs before alembic upgrade head).
+
+## Ruling change (2026-10-25, Stage 3 PRE-CODE)
+
+- R1: the TD-016 declared value is 0.24, superseding 0.35 above. At 0.35 an
+  arxiv item with one topic match has floor 0.385 and never ages out (59% of
+  the pool). At 0.24 the floors are 0.2965 / 0.3465 / 0.3965 for 0 / 1 / 2
+  matches; items with at most one match (67%) still age out (day 11 / day 29).
+  Same simulated top 50 as 0.35: 13 arxiv + 30 HF papers + 7 GitHub.
+- Stage 2 "before" measurement (production snapshot, ENRICHED 306) matches the
+  reviewer's figures. arxiv FILTERED = 0, so in this pool the change affects
+  ordering only. Ties at the top-50 cutoff (same-day arxiv items score
+  identically). GitHub items with topics: 29 of 83 (34.9%).
