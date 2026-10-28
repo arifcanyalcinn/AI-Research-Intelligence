@@ -17,14 +17,26 @@ snapshot
     The source is opened read-only: with ``mode=ro&immutable=1`` when no
     ``-wal`` file exists beside it (nothing is created next to the live
     database), otherwise with ``mode=ro`` so that committed transactions still
-    held in the WAL are included. COPY_DB must not exist and must not be in the
-    source database's directory. Prints the copy's SHA-256.
+    held in the WAL are included. COPY_DB must not exist, its directory must
+    exist, and it must not be in the source database's directory. Prints the
+    copy's SHA-256.
 
 measure
-    Prints the "before" figures for the copy: row counts by source and status;
-    per-source means of the four ranking signals over ENRICHED rows; the arxiv
-    FILTERED distribution; GitHub topic coverage and the 20 most frequent
-    topics; and a top-50 re-scoring sweep over arxiv engagement values.
+    Prints, for the copy: rows by source and status, and pipeline runs by
+    status; per-source means of the four ranking signals over ENRICHED rows;
+    a check of the engagement stored for sources without an engagement metric
+    (SDS §5.5.2); the arxiv FILTERED distribution and how many would pass
+    under the declared value; GitHub topic coverage and the 20 most frequent
+    topics; a top-50 sweep over arxiv engagement values; and, for each value,
+    which items enter or leave the top 50 relative to the stored scores.
+
+    The declared value and the metric-less sources are read from
+    ``arip.ranking.scorer`` (``METRICLESS_ENGAGEMENT``, ``METRICLESS_SOURCES``),
+    never hard-coded here. The sweep SETS arxiv engagement to each value; it
+    does not add to the stored one. So on a database scored under §5.5.2 the
+    row at the declared value reproduces the stored scores, and the row at 0.0
+    shows the previous rule on the same items.
+
     Read-only by construction: ``mode=ro`` URI (plus ``immutable=1`` when no
     ``-wal`` file is present), ``PRAGMA query_only = ON``, SELECT statements
     only, refusal to open the configured live database or anything in its
@@ -37,8 +49,9 @@ whenever those files exist, to a directory outside data/. Never copy
 has not yet been checkpointed lives only in the WAL, and a database-only copy
 silently omits it.
 
-Exit status: 0 on success; 1 if an integrity check fails or the copy changed
-during measurement; 2 on a usage error or a refused path.
+Exit status: 0 on success; 1 if an integrity check fails (stored score versus
+breakdown, or mixed stored engagement for a metric-less source) or the copy
+changed during measurement; 2 on a usage error or a refused path.
 """
 
 from __future__ import annotations
@@ -55,17 +68,13 @@ from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 
+from arip.ranking.scorer import METRICLESS_ENGAGEMENT, METRICLESS_SOURCES
+
 SIGNALS: tuple[str, ...] = ("recency", "authority", "engagement", "topic")
 """The four ranking signals stored in ``items.signal_breakdown`` (SDS §5.5)."""
 
-METRICLESS_SOURCES: frozenset[str] = frozenset({"arxiv"})
-"""Sources whose engagement the sweep replaces (ruling A2: arxiv only)."""
-
-SWEEP: tuple[float, ...] = (0.0, 0.30, 0.35, 0.40, 0.50)
-"""Arxiv engagement values simulated; 0.0 reproduces the current scorer."""
-
-SIMULATION_VALUE: float = 0.35
-"""The value ruled for TD-016 (§5.5.2), used for the FILTERED would-pass count."""
+SWEEP: tuple[float, ...] = tuple(sorted({0.0, 0.30, 0.35, 0.40, 0.50, METRICLESS_ENGAGEMENT}))
+"""Arxiv engagement values simulated: 0.0 (the previous rule), the declared value, others."""
 
 TOP_N: int = 50
 TOP_TOPICS: int = 20
@@ -186,9 +195,12 @@ class PoolRow:
 @dataclass
 class Results:
     status_counts: dict[tuple[str, str], int] = field(default_factory=dict)
+    pipeline_runs: dict[str, int] = field(default_factory=dict)
     enriched: dict[str, dict] = field(default_factory=dict)
+    declared: dict = field(default_factory=dict)
     arxiv_filtered: dict = field(default_factory=dict)
     github: dict = field(default_factory=dict)
+    stored_top: dict[str, int] = field(default_factory=dict)
     simulation: dict[float, dict] = field(default_factory=dict)
     integrity_ok: bool = True
 
@@ -227,16 +239,25 @@ def _as_date(value: object) -> date | None:
     return date.fromisoformat(str(value)[:10])
 
 
+def _top(ranked: list[tuple[float, int, str]]) -> list[tuple[float, int, str]]:
+    """First TOP_N of (score, item_id, source_id), ordered by score desc, id asc."""
+    return sorted(ranked, key=lambda t: (-t[0], t[1]))[:TOP_N]
+
+
 def measure(conn: sqlite3.Connection, weights: Weights, min_score: float) -> Results:
     """Compute every figure. Issues SELECT statements only."""
     res = Results()
 
-    # 0. Context: every row by source and status.
+    # 0. Context: every row by source and status; pipeline runs by status.
     for source_id, status, count in conn.execute(
         "SELECT source_id, status, COUNT(*) FROM items "
         "GROUP BY source_id, status ORDER BY source_id, status"
     ):
         res.status_counts[(source_id, status)] = count
+    for status, count in conn.execute(
+        "SELECT status, COUNT(*) FROM pipeline_runs GROUP BY status ORDER BY status"
+    ):
+        res.pipeline_runs[status] = count
 
     # 1. ENRICHED pool.
     pool: list[PoolRow] = []
@@ -283,13 +304,41 @@ def measure(conn: sqlite3.Connection, weights: Weights, min_score: float) -> Res
                 res.integrity_ok = False
         res.enriched[source_id] = entry
 
-    # 2. arxiv FILTERED.
+    # 1b. Engagement stored for sources without a metric (SDS §5.5.2), any status.
+    placeholders = ", ".join("?" for _ in METRICLESS_SOURCES)
+    values: Counter[float] = Counter()
+    unusable = 0
+    for (breakdown,) in conn.execute(
+        f"SELECT signal_breakdown FROM items WHERE source_id IN ({placeholders}) "
+        "AND signal_breakdown IS NOT NULL ORDER BY id",
+        sorted(METRICLESS_SOURCES),
+    ):
+        signals = _parse_signals(breakdown)
+        if signals is None:
+            unusable += 1
+        else:
+            values[signals["engagement"]] += 1
+    mixed = len(values) > 1
+    detected = next(iter(values)) if len(values) == 1 else None
+    if mixed:
+        res.integrity_ok = False
+    res.declared = {
+        "values": dict(sorted(values.items())),
+        "unusable": unusable,
+        "mixed": mixed,
+        "detected": detected,
+    }
+
+    # 2. arxiv FILTERED, projected to the declared value.
     filtered = conn.execute(
         "SELECT id, importance_score, published_date, updated_at FROM items "
         "WHERE source_id = 'arxiv' AND status = 'FILTERED' ORDER BY importance_score, id"
     ).fetchall()
     scores = sorted(row[1] for row in filtered if row[1] is not None)
-    delta = weights.engagement * SIMULATION_VALUE
+    if detected is None:
+        delta = None
+    else:
+        delta = weights.engagement * (METRICLESS_ENGAGEMENT - detected)
     ages: list[int] = []
     no_date = 0
     for _, _, published, updated in filtered:
@@ -319,7 +368,7 @@ def measure(conn: sqlite3.Connection, weights: Weights, min_score: float) -> Res
         "age": (ages[0], _quantile(ages, 0.5), ages[-1]) if ages else None,
         "no_date": no_date,
         "delta": delta,
-        "would_pass": sum(1 for s in scores if s + delta >= min_score),
+        "would_pass": (None if delta is None else sum(1 for s in scores if s + delta >= min_score)),
     }
 
     # 3. GitHub topics (ENRICHED rows).
@@ -348,8 +397,19 @@ def measure(conn: sqlite3.Connection, weights: Weights, min_score: float) -> Res
         "top_topics": sorted(topic_counts.items(), key=lambda kv: (-kv[1], kv[0]))[:TOP_TOPICS],
     }
 
-    # 4. Top-N sweep over arxiv engagement.
+    # 4. Top-N by stored score, and the sweep over arxiv engagement.
     sources = sorted({row.source_id for row in pool})
+    stored_top = _top(
+        [
+            (row.stored_score, row.item_id, row.source_id)
+            for row in pool
+            if row.stored_score is not None
+        ]
+    )
+    stored_ids = {item_id for _, item_id, _ in stored_top}
+    source_of = {row.item_id: row.source_id for row in pool}
+    stored_counts = Counter(source for _, _, source in stored_top)
+    res.stored_top = {source: stored_counts.get(source, 0) for source in sources}
     for value in SWEEP:
         ranked = []
         for row in pool:
@@ -357,16 +417,19 @@ def measure(conn: sqlite3.Connection, weights: Weights, min_score: float) -> Res
             if row.source_id in METRICLESS_SOURCES:
                 signals["engagement"] = value
             ranked.append((weights.score(signals), row.item_id, row.source_id))
-        ranked.sort(key=lambda t: (-t[0], t[1]))
-        top = ranked[:TOP_N]
+        ordered = sorted(ranked, key=lambda t: (-t[0], t[1]))
+        top = ordered[:TOP_N]
+        top_ids = {item_id for _, item_id, _ in top}
         counts = Counter(source for _, _, source in top)
         cutoff = top[-1][0] if top else None
         res.simulation[value] = {
             "counts": {source: counts.get(source, 0) for source in sources},
             "rank_n": cutoff,
-            "rank_n_plus_1": ranked[TOP_N][0] if len(ranked) > TOP_N else None,
-            "exact_ties": sum(1 for s, _, _ in ranked if s == cutoff) if top else 0,
-            "near_ties": sum(1 for s, _, _ in ranked if abs(s - cutoff) < NEAR_TIE) if top else 0,
+            "rank_n_plus_1": ordered[TOP_N][0] if len(ordered) > TOP_N else None,
+            "exact_ties": sum(1 for s, _, _ in ordered if s == cutoff) if top else 0,
+            "near_ties": sum(1 for s, _, _ in ordered if abs(s - cutoff) < NEAR_TIE) if top else 0,
+            "entered": dict(sorted(Counter(source_of[i] for i in top_ids - stored_ids).items())),
+            "left": dict(sorted(Counter(source_of[i] for i in stored_ids - top_ids).items())),
         }
     return res
 
@@ -376,6 +439,20 @@ def measure(conn: sqlite3.Connection, weights: Weights, min_score: float) -> Res
 # ---------------------------------------------------------------------------
 
 
+def _rule_label(value: float | None) -> str:
+    if value is None:
+        return "unknown"
+    if value == METRICLESS_ENGAGEMENT:
+        return f"the declared value (§5.5.2, {METRICLESS_ENGAGEMENT})"
+    if value == 0.0:
+        return "the previous rule (0.0)"
+    return "neither the declared value nor 0.0"
+
+
+def _fmt_counts(counts: dict[str, int]) -> str:
+    return ", ".join(f"{source} {n}" for source, n in counts.items()) or "none"
+
+
 def render(res: Results, weights: Weights, min_score: float) -> str:
     out: list[str] = []
     w = out.append
@@ -383,10 +460,15 @@ def render(res: Results, weights: Weights, min_score: float) -> str:
         f"Weights: recency {weights.recency}  authority {weights.authority}  "
         f"engagement {weights.engagement}  topic {weights.topic}   min_score {min_score}"
     )
+    w(
+        f"Declared engagement (arip.ranking.scorer): {METRICLESS_ENGAGEMENT} "
+        f"for {', '.join(sorted(METRICLESS_SOURCES))}"
+    )
 
     w("\n[0] Rows by source and status")
     for (source_id, status), count in sorted(res.status_counts.items()):
         w(f"  {source_id:<22}{status:<16}{count:>6}")
+    w(f"  pipeline_runs: {_fmt_counts(res.pipeline_runs)}")
 
     w("\n[1] ENRICHED rows per source")
     w(
@@ -404,9 +486,20 @@ def render(res: Results, weights: Weights, min_score: float) -> str:
             if e["missing_score"]:
                 line += f"  ({e['missing_score']} without importance_score)"
         w(line)
+    d = res.declared
+    w(
+        "  Stored engagement of metric-less sources (any status): "
+        + (", ".join(f"{v:g} x {n}" for v, n in d["values"].items()) or "no rows")
+        + (f"; unusable breakdowns {d['unusable']}" if d["unusable"] else "")
+    )
+    w(
+        "  Rule detected: "
+        + ("MIXED — more than one stored value" if d["mixed"] else _rule_label(d["detected"]))
+    )
     w(
         "  Integrity (stored importance_score = weights x breakdown, "
-        f"tolerance {INTEGRITY_TOLERANCE:g}): {'OK' if res.integrity_ok else 'FAILED'}"
+        f"tolerance {INTEGRITY_TOLERANCE:g}; single stored rule): "
+        f"{'OK' if res.integrity_ok else 'FAILED'}"
     )
 
     f = res.arxiv_filtered
@@ -428,10 +521,14 @@ def render(res: Results, weights: Weights, min_score: float) -> str:
         w(f"  age at filtering (days): min {a[0]}  median {a[1]:g}  max {a[2]}")
     if f["no_date"]:
         w(f"  without published_date or updated_at: {f['no_date']}")
-    w(
-        f"  would pass at arxiv engagement {SIMULATION_VALUE} "
-        f"(stored + {f['delta']:.4f} >= {min_score}): {f['would_pass']} of {f['count'] - f['null_score']}"
-    )
+    if f["delta"] is None:
+        w("  would pass under the declared value: not computed (stored rule unknown or mixed)")
+    else:
+        w(
+            f"  would pass under the declared value {METRICLESS_ENGAGEMENT} "
+            f"(stored + {f['delta']:.4f} >= {min_score}): "
+            f"{f['would_pass']} of {f['count'] - f['null_score']}"
+        )
 
     g = res.github
     w("\n[3] GitHub topics (ENRICHED github_trending)")
@@ -442,24 +539,29 @@ def render(res: Results, weights: Weights, min_score: float) -> str:
     for topic, n in g["top_topics"]:
         w(f"    {n:>4}  {topic}")
 
-    w(f"\n[4] Top-{TOP_N} sweep: arxiv engagement = v (other sources unchanged)")
-    sources = sorted(next(iter(res.simulation.values()))["counts"]) if res.simulation else []
+    w(f"\n[4] Top-{TOP_N}: stored scores, and arxiv engagement = v (other sources unchanged)")
+    sources = list(res.stored_top)
     w(
         "  "
-        + f"{'v':>5}"
+        + f"{'v':>7}"
         + "".join(f"{s:>20}" for s in sources)
         + f"{'rank50':>9}{'rank51':>9}{'ties':>6}{'near':>6}"
     )
+    w("  " + f"{'stored':>7}" + "".join(f"{res.stored_top[src]:>20}" for src in sources))
     for value, s in res.simulation.items():
         r50 = f"{s['rank_n']:.4f}" if s["rank_n"] is not None else "-"
         r51 = f"{s['rank_n_plus_1']:.4f}" if s["rank_n_plus_1"] is not None else "-"
         w(
             "  "
-            + f"{value:>5.2f}"
+            + f"{value:>7.2f}"
             + "".join(f"{s['counts'][src]:>20}" for src in sources)
             + f"{r50:>9}{r51:>9}{s['exact_ties']:>6}{s['near_ties']:>6}"
         )
     w("  ties: rows whose score equals the rank-50 score; near: within 0.00005 of it")
+
+    w(f"\n[5] Top-{TOP_N} membership at each v, relative to the stored top {TOP_N}")
+    for value, s in res.simulation.items():
+        w(f"  v {value:.2f}: entered {_fmt_counts(s['entered'])}; left {_fmt_counts(s['left'])}")
     return "\n".join(out)
 
 
