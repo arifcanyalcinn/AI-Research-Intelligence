@@ -769,7 +769,7 @@ Prerequisites:
 
 ---
 
-# Batch 10 – Ranking Calibration (in progress)
+# Batch 10 – Ranking Calibration
 
 ## Scope decision (2026-10-25)
 
@@ -835,3 +835,120 @@ Next: Batch 10 PRE-CODE ANALYSIS, then Batch 11 = SDS Phase 4.
   reviewer's figures. arxiv FILTERED = 0, so in this pool the change affects
   ordering only. Ties at the top-50 cutoff (same-day arxiv items score
   identically). GitHub items with topics: 29 of 83 (34.9%).
+
+## Delivery
+
+Five stages and one decision commit, 5026ead → 22a4b9d.
+
+| Stage | Content | Commit |
+|---|---|---|
+| 1 | Cleanup: TD-002 (`ruff check --fix`, whitespace only), TD-008 (`.env.example` Search API limits), TD-014 (README Setup section), and the non-existent "SDS §5.3.1" quotations in `github_trending.py` and its tests replaced with real citations (docstrings and comments only; syntax trees otherwise identical) | ac2de6d |
+| 1b | `ruff format` adopted: 27 files; 7 adjacent-literal pairs merged by hand first; syntax-tree proof with docstrings normalised (one file differs in docstring whitespace only) | 93ed3cf |
+| — | D-007: `ruff format --check` added to the gate | 99100cc |
+| 2 | `tools/measure_ranking_pool.py` (new): read-only snapshot + measurement | 92c0d2f |
+| 3 | Commit 1: split `test_metricless_source_is_excluded_from_cohort_statistics`, no behaviour change. Commit 2: SDS §5.5.2 (85 lines, additions only; block SHA-256 e9f5db39…), `METRICLESS_SOURCES = {"arxiv"}`, `METRICLESS_ENGAGEMENT = 0.24`, changed and new tests | 01c5ef3, 3ddc6fd |
+| 4 | Tool reads the declared value from `arip.ranking.scorer`; declared-value check; corrected FILTERED projection; stored-baseline comparison; fresh DB and one live run | 22a4b9d |
+
+Rulings for every stage are recorded in `project_log/batches/BATCH-10-DECISIONS.md`.
+
+## SDS
+
+One amendment: §5.5.2 "Engagement for a Source Without an Engagement Metric", inserted after
+§5.5.1. It amends the §5.5 Engagement row and the §5.5.1 "absent, NULL, or missing its key"
+sentence; both original texts are left in place. No §9.1 decision is altered. No other SDS text
+changed.
+
+## Validation
+
+* pytest 739 → 740 (Stage 3 commit 1) → **750** (Stage 3 commit 2)
+* `ruff check`: 13 → **0**; `ruff format --check`: 28 files → **0** (69 formatted)
+* `check-config` valid at every stage
+* Stage 3:
+  * The 75-test must-not-change set passes on both the old and the new scorer.
+  * The 15 changed or new tests fail individually on the old scorer.
+  * Mutations M1–M9 each failed exactly the predicted tests. M4 (0.24 → 0.25) also flips the
+    one-match floor across min_score, which confirms the boundary.
+  * `scorer.py` coverage 100%.
+* Tool check script (outside the repository): 36 checks, including breakages B1–B7
+
+## Live run and measurement
+
+Fresh database (archive in `%USERPROFILE%\arip-archive\batch10-before-2026-10-28`: arip.db,
+an empty arip.db-wal, arip.db-shm, ann_index.usearch; hashes matched; an archive snapshot
+reproduced the Stage 2 snapshot SHA-256 exactly). Pre-flight checks clean three times. One run:
+"✓ Pipeline run 1 complete.", exit 0. The embedding model was not cached and was re-downloaded
+during the run. Criteria S1–S9 all pass.
+
+| | Before: archived pool, previous rule | After: fresh DB, one run, §5.5.2 |
+|---|---|---|
+| Snapshot SHA-256 | 0024eb7f… | 7a7d6541…5103 |
+| Runs that built it | ≥ 2 (arxiv 100 = 2 × 50) | 1 |
+| Rows | 399 | 250 (50 per source) |
+| ENRICHED | 306: arxiv 100, github 83, hf_models 24, hf_papers 83, hf_spaces 16 | 179: arxiv 50, github 46, hf_models 24, hf_papers 43, hf_spaces 16 |
+| FILTERED | 76: spaces 34, models 25, github 13, hf_papers 4 | 63: spaces 34, models 23, github 4, hf_papers 2 |
+| DUPLICATE | 17 | 8: hf_papers 5, hf_models 3 |
+| arxiv FILTERED | 0 | 0 |
+| arxiv stored engagement | 0.0 | 0.24 × 50 (rule detected: §5.5.2) |
+| Integrity (stored score = breakdown × weights) | OK | OK, max diff 0.0 |
+| Stored top 50, arxiv / github / hf_papers | 0 / 15 / 35 | 15 / 12 / 23 |
+| Same items under the other rule | 13 / 7 / 30 (at 0.24) | 5 / 17 / 28 (at 0.00) |
+| Ties at the top-50 cutoff | ranks 50/51 tie at 0.6509 (v = 0.35); 20 rows tie (v = 0.40, 0.50) | ranks 50/51 tie at 0.5906 |
+| GitHub ENRICHED items with topics | 29 / 83 (34.9%); top: ai-agents 6 | 20 / 46 (43.5%); top: claude-code 7, codex 5, agent-skills 4, cursor 3 |
+
+Comparisons of the same items are made only within one database, under two rules. Across the
+two databases only statistics are compared: different items, a different week, one run against
+at least two.
+
+## Findings
+
+* **TD-016 changes ordering, not admission.** No arxiv item was FILTERED in either pool. On the
+  fresh pool the declared value puts 15 arxiv items in the top 50, against 5 under the previous
+  rule on the same items.
+* **Ties at the top-50 cutoff** occur in both pools; same-day arxiv items with identical
+  breakdowns score identically. → TD-023.
+* **`pipeline.max_items_per_run` is enforced nowhere.** One run produced 179 ENRICHED items. → TD-023.
+* **GitHub composition.** The 7-day window is dominated by coding-agent tooling, plus items
+  tagged "uncensored-ai"; 65.2% of GitHub items have topic score 0. Whether these are in scope
+  for an AI-research digest is a product decision, not taken here. → TD-022.
+* **TD-020 likely recurs.** 3 hf_models DUPLICATE rows appeared in the fresh run. The pairs were
+  not inspected.
+* **Snapshot hazard, confirmed by test.** A database-only copy taken while the WAL holds
+  committed data silently omits that data. The tool's snapshot subcommand avoids it, and the
+  fallback is documented in the tool.
+* **Windows App Control** blocks pip-generated launcher .exe files. pytest and alembic are run as
+  `python -m pytest` and `python -m alembic`; ruff.exe is unaffected. The README Setup section
+  still says `alembic upgrade head`, which will likely fail on the target machine (alembic.exe
+  is the same kind of pip launcher as the blocked pytest.exe; not tested).
+* **Cosmetic:** under Windows PowerShell, `Tee-Object` shows "§" as "┬ğ". The tool writes UTF-8;
+  PowerShell 5.1 decodes native output with the console code page. Setting
+  `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8` first is the likely fix (NOT
+  VERIFIED on the target machine). No debt recorded.
+* **Reported in the pre-code analysis, not acted on.** The `alembic/env.py` docstring says the
+  fallback is in-memory, but the code falls back to `data/arip.db`. `_ensure_runtime_dirs`
+  hard-codes `data/`. README.md status is stale. Not registered as debt; the reviewer decides.
+
+## Technical Debt
+
+Removed: TD-002, TD-006, TD-008, TD-014, TD-016. Updated: TD-017 (the §5.5.2 reference) and
+TD-022 (topic measurements). New: TD-023 (top-N tie-break; `max_items_per_run` enforced nowhere).
+
+## Next
+
+Batch 11 — SDS Phase 4, local LLM generation. Prerequisites:
+
+* Batch 10 closure blocks applied; working tree clean.
+* Phase 4 pre-code analysis, with scope defined per the §8.2 precedent.
+* **TD-019**, Stage 1 alone: re-pin the commented `llm` extra as a whole, including a CUDA build
+  of torch for Windows. Dependency change only, no code.
+* **LLM model.** `config/settings.yaml` names `Qwen/Qwen2.5-7B-Instruct`; the 8 GB-VRAM plan is
+  `Qwen2.5-3B-Instruct` (4-bit), per §7.1's 8 GB guidance. `model_name` is a config field, so no
+  amendment is needed for the value. Decide the model, and whether §7.1 itself needs amending.
+* **TD-020** decided before generation consumes the pool.
+* **TD-023** decided before Phase 4 selects items: the cap's enforcement point (closing §9.2's
+  deferral) and a deterministic tie-break.
+* **TD-022**, recommended: decide whether GitHub items outside AI research (coding-agent tooling,
+  "uncensored-ai") should reach generation.
+* **Windows App Control:** every command written as `python -m …`. Correct the README Setup line
+  to `python -m alembic upgrade head` in Stage 1.
+* The LLM weights (several GB) are downloaded on first use; that run needs network access and
+  disk space.

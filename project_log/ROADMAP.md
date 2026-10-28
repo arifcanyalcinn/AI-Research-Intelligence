@@ -14,4 +14,5 @@
 - ✅ Batch 7 - Integration (collection path)
 - ✅ Batch 8 - Ranking (Scorer and RankStage)
 - ✅ Batch 9 - Embeddings and semantic deduplication
-- ⬜ Batch 10 - Ranking calibration (reduced scope)
+- ✅ Batch 10 - Ranking calibration (reduced scope)
+- ⬜ Batch 11 - Local LLM generation (SDS Phase 4)

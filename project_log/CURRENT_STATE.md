@@ -1,7 +1,7 @@
 # Current Project State
 
 Current Phase:
-Phase 1
+SDS Phases 0–3 complete (Phase 1 closed by §8.4). Next: Phase 4, Batch 11.
 
 Completed Batches
 
@@ -14,6 +14,7 @@ Completed Batches
 [x] Batch 7
 [x] Batch 8
 [x] Batch 9
+[x] Batch 10 (ranking calibration, reduced scope)
 
 Implemented Sources
 
@@ -26,8 +27,10 @@ Implemented Sources
 
 Current Test Count
 
-739 Passed
-661 Passed, 2 Skipped without the [embedding] extra
+750 Passed
+672 Passed, 2 Skipped without the [embedding] extra
+
+Gate (Decision 004 + D-007): python -m pytest, ruff check ., ruff format --check ., python -m arip check-config
 
 Architecture Status
 
@@ -39,6 +42,16 @@ Known Compatibility Issues
 - respx 0.21.1 issue #277
 - Temporary workaround: url__startswith
 - Remove after upgrading to respx >= 0.22
+
+Environment Notes
+
+- Windows App Control blocks pip-generated launcher .exe files (pytest.exe and similar).
+  Use python -m pytest and python -m alembic. ruff.exe is unaffected.
+- The Hugging Face cache did not survive the machine's service; the embedding model was
+  re-downloaded in Batch 10. Expect first-use downloads for the Phase 4 LLM.
+- The pre-Batch-10 database and ANN index are archived in
+  %USERPROFILE%\arip-archive\batch10-before-2026-10-28. The live data\arip.db is the fresh
+  Batch 10 pool (250 rows, one run, scored under SDS §5.5.2).
 
 
 Target Hardware
