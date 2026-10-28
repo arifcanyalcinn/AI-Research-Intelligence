@@ -20,7 +20,7 @@ with a score, not how the score is computed.
 from __future__ import annotations
 
 import json
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 import pytest
 from sqlalchemy import create_engine
@@ -317,6 +317,44 @@ def test_scores_differ_across_items(make_stage, item_repo, db_session) -> None:
 
     scores = {i.external_id: i.importance_score for i in db_session.query(Item).all()}
     assert scores["popular"] > scores["obscure"]
+
+
+# ---------------------------------------------------------------------------
+# Declared engagement — SDS §5.5.2
+# ---------------------------------------------------------------------------
+
+
+def test_arxiv_item_is_ranked_on_its_declared_engagement(make_stage, item_repo, db_session) -> None:
+    """An arxiv item five days old, with no topic match, is RANKED under §5.5.2.
+
+    Declared engagement 0.24: 0.4146 at five days, so RANKED. Under the previous
+    rule (engagement 0.0) the same item scored 0.3306 and was FILTERED. Ranking
+    uses the real clock, so the age may read as four or six days: 0.4337 / 0.3981
+    against 0.3497 / 0.3142 — both outcomes hold either way.
+    """
+    item = add_item(
+        item_repo,
+        source_id="arxiv",
+        source_type="PAPER",
+        published_date=date.today() - timedelta(days=5),
+        title="Untitled",
+        external_id="arxiv-paper",
+    )
+
+    make_stage().run(RUN_ID)
+
+    stored = db_session.get(Item, item.id)
+    breakdown = json.loads(stored.signal_breakdown)
+    weights = SignalWeights()
+    expected = (
+        weights.recency * breakdown["recency"]
+        + weights.authority * breakdown["authority"]
+        + weights.engagement * breakdown["engagement"]
+        + weights.topic * breakdown["topic"]
+    )
+    assert stored.status == ItemStatus.RANKED.value
+    assert breakdown["engagement"] == 0.24
+    assert stored.importance_score == pytest.approx(expected)
 
 
 # ---------------------------------------------------------------------------

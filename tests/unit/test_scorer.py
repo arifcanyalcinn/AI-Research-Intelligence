@@ -27,6 +27,7 @@ from datetime import date, datetime, timedelta
 import pytest
 from pydantic import ValidationError
 
+import arip.ranking.scorer as scorer_module
 from arip.config import RankingSettings, SignalWeights
 from arip.db.models import Item
 from arip.ranking.scorer import ENGAGEMENT_METRIC_BY_SOURCE, Scorer
@@ -323,7 +324,7 @@ def test_metricless_source_is_excluded_from_cohort_statistics() -> None:
 
 
 def test_metricless_source_engagement_value() -> None:
-    """The engagement a source without a metric receives (SDS §5.5.1; TD-016).
+    """The engagement a source without a metric receives (SDS §5.5.2; TD-016).
 
     Same batch as the cohort-exclusion test above, so the value is asserted
     alongside measured items that share the arxiv item's source_type.
@@ -334,7 +335,39 @@ def test_metricless_source_engagement_value() -> None:
 
     results = Scorer(settings()).score_batch([arxiv, low, high], now=NOW)
 
-    assert results[0][1]["engagement"] == 0.0
+    assert results[0][1]["engagement"] == 0.24
+
+
+def test_metricless_sources_are_exactly_arxiv() -> None:
+    """§5.5.2 names one source. Unknown and unmapped sources are not members."""
+    assert scorer_module.METRICLESS_SOURCES == frozenset({"arxiv"})
+
+
+def test_metricless_sources_have_no_engagement_key() -> None:
+    """A source either publishes a metric (§5.5.1) or has a declared value (§5.5.2)."""
+    assert scorer_module.METRICLESS_SOURCES.isdisjoint(ENGAGEMENT_METRIC_BY_SOURCE)
+
+
+def test_metricless_value_does_not_depend_on_the_cohort() -> None:
+    """Alone in its batch arxiv still scores 0.24: not 1.0 as a sole member, not 0.0."""
+    _, breakdown = score_one(make_item("arxiv", "PAPER"), settings())
+
+    assert breakdown["engagement"] == 0.24
+
+
+def test_metricless_source_ignores_its_source_signals() -> None:
+    """Membership is declared by source_id; an arxiv item's signals are never read.
+
+    The arxiv item carries an upvote count above both hf_papers items. Read as
+    data, it would enter the PAPER cohort and lower the higher item to 0.5.
+    """
+    arxiv = make_item("arxiv", "PAPER", source_signals={"upvotes": 99}, item_id=1)
+    low = make_item("huggingface_papers", "PAPER", source_signals={"upvotes": 2}, item_id=2)
+    high = make_item("huggingface_papers", "PAPER", source_signals={"upvotes": 8}, item_id=3)
+
+    results = Scorer(settings()).score_batch([arxiv, low, high], now=NOW)
+
+    assert [r[1]["engagement"] for r in results] == [0.24, 0.0, 1.0]
 
 
 def test_absent_source_signals_scores_zero() -> None:
@@ -668,21 +701,25 @@ def test_reweighting_changes_the_composite() -> None:
 @pytest.mark.parametrize(
     ("days", "expected_score", "passes_threshold"),
     [
-        (0, 0.4625, True),
-        (3, 0.3719, True),
-        (5, 0.3306, False),
-        (7, 0.3000, False),
+        (0, 0.5465, True),
+        (3, 0.4559, True),
+        (5, 0.4146, True),
+        (7, 0.3840, True),
+        (10, 0.3523, True),
+        (11, 0.3445, False),
     ],
 )
-def test_arxiv_ages_below_threshold_without_engagement(
+def test_arxiv_ages_below_threshold_on_recency_alone(
     days: int, expected_score: float, passes_threshold: bool
 ) -> None:
     """TD-016 as an executable assertion.
 
-    ArXiv carries the highest authority (0.85) and no engagement metric, so its
-    score decays on age alone. This test pins the numbers so that a future
-    change to the weights, to recency_k, or to min_score surfaces here rather
-    than in a live run.
+    ArXiv carries the highest authority (0.85) and the declared engagement 0.24
+    (§5.5.2). With no topic match its floor is 0.2965, below min_score, so its
+    score still decays below the threshold on age alone: between day 10 and day
+    11. This test pins the numbers so that a future change to the weights, to
+    recency_k, to the declared value, or to min_score surfaces here rather than
+    in a live run.
     """
     config = settings()
     item = make_item(
@@ -712,6 +749,45 @@ def test_raising_recency_k_ages_arxiv_out_faster() -> None:
 
     assert default >= 0.35
     assert aggressive < 0.35
+
+
+def _arxiv_floor(title: str) -> tuple[float, float]:
+    """Score of an undated arxiv item (recency 0), and the configured min_score.
+
+    §5.5.2 floor: 0.25 x 0.85 + 0.35 x 0.24 = 0.2965, plus 0.05 per topic match.
+    """
+    config = settings(topic_keywords=["transformer", "diffusion"])
+    item = make_item("arxiv", "PAPER", published_date=None, title=title)
+    score, _ = score_one(item, config)
+    return score, config.min_score
+
+
+def test_arxiv_floor_without_topic_match() -> None:
+    """No match: floor 0.2965, below min_score, so the item ages out (§5.5.2)."""
+    score, min_score = _arxiv_floor("Untitled")
+
+    assert score == pytest.approx(0.2965, abs=1e-9)
+    assert score < min_score
+
+
+def test_arxiv_floor_with_one_topic_match() -> None:
+    """One match: floor 0.3465, still below min_score (§5.5.2).
+
+    The boundary that fixes the declared value: at 0.25 this floor would equal
+    min_score and a one-match item would never age out.
+    """
+    score, min_score = _arxiv_floor("A transformer study")
+
+    assert score == pytest.approx(0.3465, abs=1e-9)
+    assert score < min_score
+
+
+def test_arxiv_floor_with_two_topic_matches() -> None:
+    """Two matches: floor 0.3965, above min_score; the item never ages out (§5.5.2)."""
+    score, min_score = _arxiv_floor("transformer and diffusion")
+
+    assert score == pytest.approx(0.3965, abs=1e-9)
+    assert score >= min_score
 
 
 # ---------------------------------------------------------------------------

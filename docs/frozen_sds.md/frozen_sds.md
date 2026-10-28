@@ -818,6 +818,91 @@ field, because every item has a title, most have an abstract, and only some have
 *No frozen decision in §9.1 is altered by this amendment. AD-19 is upheld: novelty remains
 outside the ranking score.*
 
+---
+
+### 5.5.2 — Engagement for a Source Without an Engagement Metric
+
+**Amends:** the Engagement row of the signal table in §5.5, which reads *"Normalized metric per
+source type. Percentile within the current batch (not all-time). Batch minimum = 1 if only one
+item."*, and the sentence in §5.5.1 that reads *"A source whose `source_signals` is absent, NULL,
+or missing its key scores 0.0 for engagement, consistent with the malformed-JSON rule already
+stated in §5.5."* Both original texts are left in place.
+
+§5.5.1's table marks `arxiv` *(none)*: the ArXiv API exposes no engagement metric, so
+`source_signals` is NULL for every ArXiv item. The §5.5.1 sentence therefore assigns 0.0 to two
+different situations:
+
+- a **per-item defect** — the source publishes an engagement metric, but this item's
+  `source_signals` is absent, NULL, unparseable, not a JSON object, missing the source's key, or
+  not numeric;
+- a **source that never measures engagement** — every item of the source, by construction, with
+  nothing missing at the item level.
+
+They are separated as follows.
+
+**Per-item defect.** Unchanged: engagement is 0.0, and the item is excluded from its cohort's
+statistics.
+
+**Source without an engagement metric.** Every item of a source named in the table below receives
+the declared engagement value. The value depends neither on the item nor on the run. The item is
+not a member of any cohort, and its presence does not alter the percentiles of other sources that
+share its `source_type`. The value is recorded in `signal_breakdown` as the item's `engagement`,
+so the stored breakdown still multiplies out to the stored score.
+
+| `source_id` | Engagement |
+|---|---|
+| `arxiv` | 0.24 |
+
+Only the sources named in this table receive a declared value. A `source_id` that has neither an
+engagement key in §5.5.1 nor an entry here — an unknown or unmapped source — scores 0.0.
+`papers_with_code` is not named: it is DECLARED but UNIMPLEMENTED (§5.3.2), and its engagement is
+decided when it is implemented. Adding a source to this table is an amendment.
+
+**Why 0.24.** It is below 0.5, the mean percentile of a measured item in a cohort without ties, so
+an item from a source that publishes no metric ranks below a typical measured item on this signal
+rather than at its median. It is also the largest two-decimal value at which an ArXiv item with one
+topic match still ages below the default `min_score`: at 0.25 that item's floor equals `min_score`
+(see below).
+
+**Missing data still earns no credit.** §5.5.1 derives that a NULL `published_date` scores 0.0 for
+recency because "missing data earns no credit, and scoring 1.0 would reward its absence". That
+reasoning concerns data a source provides and an item lacks, and it continues to govern every such
+case: a missing publication date and every per-item engagement defect still score 0.0. A source
+without an engagement metric lacks nothing at the item level; the absence is a property of the
+source, fixed in advance and identical for every one of its items. The declared value is a prior
+about that source, not credit for an absence: no item can raise its score by omitting data, and
+the value sits below what a measured item receives on average.
+
+**Floor and age-out.** With the §5.5 default weights an ArXiv item scores at least
+0.25 × 0.85 + 0.35 × 0.24 = 0.2965 before recency, and each topic match adds 0.05, up to three.
+Its floor is therefore 0.2965 with no topic match, 0.3465 with one and 0.3965 with two, against a
+default `min_score` of 0.35. An item with at most one topic match still ages below the threshold:
+at the default `recency_k` of 0.15, an item with no match scores 0.3523 at 10 days and 0.3445 at
+11 days, and an item with one match scores 0.3502 at 28 days and 0.3497 at 29 days. For these
+items the statement in §5.15.1 that `recency_k` governs how quickly a source with no engagement
+metric ages below the threshold remains valid. An item with two or more topic matches does not age
+below the default `min_score` at any `recency_k`; under the previous rule this held only for items
+with three or more matches (floor 0.3625).
+
+**Single-member and tied cohorts — considered, not changed.** §5.5.1 scores the sole member of a
+cohort 1.0, and the percentile definition scores 0.0 for every member of a cohort whose values
+all tie. In both cases the cohort cannot distinguish its members, and the value declared here
+could suggest scoring them at a neutral value too. Neither is changed. The single-member value
+follows from §5.5's own text ("Batch minimum = 1 if only one item"). Changing the tie rule would
+alter the engagement of every source that publishes a metric, wherever values tie, and no
+measurement in hand supports that change. The asymmetry is tracked in the project's technical-debt
+register.
+
+**Logging.** A source without an engagement metric is expected, not a defect, and nothing is
+logged for it. For per-item defects, a warning is logged when `source_signals` cannot be parsed as
+a JSON object, consistent with §5.5's malformed-JSON rule; an absent value, a missing key or a
+non-numeric value is not logged. This subsection changes neither.
+
+This subsection adds no signal, changes no weight, and introduces no configuration: the declared
+value is fixed here, as §5.5.1 fixes the metric keys.
+
+*No frozen decision in §9.1 is altered by this amendment.*
+
 ## 5.6 Embedding Service
 
 **Purpose:** Compute dense vector representations of items for semantic deduplication.

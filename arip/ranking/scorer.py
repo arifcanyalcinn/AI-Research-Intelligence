@@ -19,8 +19,9 @@ Signals
 * **Source authority** — static per-source weight from
   `config.ranking.source_authority`.
 * **Engagement** — percentile of the source's engagement metric within its
-  cohort for this run (§5.5.1). A source with no engagement metric, or an item
-  whose `source_signals` is absent or unparseable, scores 0.0 (§5.5).
+  cohort for this run (§5.5.1). A source that publishes no engagement metric
+  receives the value declared in §5.5.2 (`arxiv`: 0.24) and joins no cohort.
+  An item whose `source_signals` is absent or unparseable scores 0.0 (§5.5).
 * **Topic relevance** — `min(matches / 3, 1.0)` over lowercase substring
   matches of `config.ranking.topic_keywords` (§5.5.1).
 
@@ -62,10 +63,21 @@ ENGAGEMENT_METRIC_BY_SOURCE: dict[str, str] = {
 """Key within ``items.source_signals`` carrying each source's engagement metric.
 
 ``arxiv`` is deliberately absent: the ArXiv API exposes no engagement metric,
-so its items score 0.0 for this signal (§5.5.1, TD-016). ``papers_with_code``
-is absent because it is DECLARED-but-UNIMPLEMENTED (§5.3.2); it gains an entry
-if and when the source is implemented.
+so its items receive :data:`METRICLESS_ENGAGEMENT` instead (§5.5.2).
+``papers_with_code`` is absent because it is DECLARED-but-UNIMPLEMENTED
+(§5.3.2); it gains an entry if and when the source is implemented.
 """
+
+METRICLESS_SOURCES: frozenset[str] = frozenset({"arxiv"})
+"""Sources that publish no engagement metric (SDS §5.5.2).
+
+Disjoint from :data:`ENGAGEMENT_METRIC_BY_SOURCE`. Membership is declared by
+``source_id``: an item's ``source_signals`` is never consulted for these
+sources. An unknown or unmapped source is not a member and scores 0.0.
+"""
+
+METRICLESS_ENGAGEMENT: float = 0.24
+"""Engagement declared for every item of a :data:`METRICLESS_SOURCES` source (SDS §5.5.2)."""
 
 TOPIC_MATCH_DIVISOR = 3
 """Diminishing-returns divisor in ``min(matches / 3, 1.0)`` (SDS §5.5)."""
@@ -188,10 +200,11 @@ class Scorer:
         Items are grouped into cohorts by `source_type` (§5.5.1), and each
         item's score is its metric's percentile within its cohort.
 
-        Items whose source has no engagement metric — or whose metric cannot be
-        read — score 0.0 and are excluded from cohort statistics entirely. They
-        are not counted as zeros: doing so would let a metric-less source
-        inflate the percentiles of every other source sharing its type.
+        Items of a source that publishes no engagement metric receive the
+        declared :data:`METRICLESS_ENGAGEMENT` (§5.5.2). Items whose metric
+        cannot be read, and items of an unknown source, score 0.0 (§5.5.1).
+        Neither kind is counted in cohort statistics: counting them would let
+        them shift the percentiles of every other source sharing their type.
 
         Returns:
             One value per input item, in input order.
@@ -205,7 +218,11 @@ class Scorer:
 
         scores: list[float] = []
         for item, value in zip(items, raw, strict=True):
-            if value is None:
+            if item.source_id in METRICLESS_SOURCES:
+                # Declared by source, before any per-item data is read (§5.5.2).
+                scores.append(METRICLESS_ENGAGEMENT)
+            elif value is None:
+                # Per-item defect, or a source with no declared value (§5.5.1).
                 scores.append(0.0)
             else:
                 scores.append(_percentile(value, cohorts[item.source_type]))
@@ -218,12 +235,14 @@ class Scorer:
             The metric value, or None when this source has no engagement
             metric, the item carries no `source_signals`, the JSON is
             unparseable, the key is absent, or the value is not numeric.
-            None means "excluded from the cohort and scored 0.0" — it is
-            never confused with a genuine zero metric.
+            None means "excluded from the cohort"; the caller then scores
+            :data:`METRICLESS_ENGAGEMENT` for a §5.5.2 source and 0.0 for
+            anything else. It is never confused with a genuine zero metric.
         """
         key = ENGAGEMENT_METRIC_BY_SOURCE.get(item.source_id)
         if key is None:
-            # Source exposes no engagement metric (e.g. arxiv). Not an error.
+            # No engagement metric (arxiv: §5.5.2 declares its value) or an
+            # unknown source. Not an error.
             return None
 
         if not item.source_signals:
