@@ -318,9 +318,23 @@ def test_metricless_source_is_excluded_from_cohort_statistics() -> None:
 
     results = Scorer(settings()).score_batch([arxiv, low, high], now=NOW)
 
-    assert results[0][1]["engagement"] == 0.0
     assert results[1][1]["engagement"] == 0.0
     assert results[2][1]["engagement"] == 1.0
+
+
+def test_metricless_source_engagement_value() -> None:
+    """The engagement a source without a metric receives (SDS §5.5.1; TD-016).
+
+    Same batch as the cohort-exclusion test above, so the value is asserted
+    alongside measured items that share the arxiv item's source_type.
+    """
+    arxiv = make_item("arxiv", "PAPER", item_id=1)
+    low = make_item("huggingface_papers", "PAPER", source_signals={"upvotes": 2}, item_id=2)
+    high = make_item("huggingface_papers", "PAPER", source_signals={"upvotes": 8}, item_id=3)
+
+    results = Scorer(settings()).score_batch([arxiv, low, high], now=NOW)
+
+    assert results[0][1]["engagement"] == 0.0
 
 
 def test_absent_source_signals_scores_zero() -> None:
