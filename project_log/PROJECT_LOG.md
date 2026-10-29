@@ -952,3 +952,19 @@ Batch 11 — SDS Phase 4, local LLM generation. Prerequisites:
   to `python -m alembic upgrade head` in Stage 1.
 * The LLM weights (several GB) are downloaded on first use; that run needs network access and
   disk space.
+
+  
+# Batch 11 – Local LLM Generation, SDS Phase 4 (in progress)
+
+## Decisions before PRE-CODE (2026-10-29)
+
+- LLM model: Qwen2.5-3B-Instruct, 4-bit (SDS §7.1, 8 GB guidance). Closed; not to be
+  re-discussed. config/settings.yaml currently names Qwen2.5-7B-Instruct; changed in a
+  Batch 11 stage. To be recorded as D-008.
+- TD-020 (HF Models semantic false positives) is resolved in Batch 11.
+- TD-023 tie-break, in principle: importance_score desc, then engagement desc, then
+  topic desc, then published_date desc, then id asc. Exact ties exist between same-day
+  arxiv items with identical breakdowns, so the last two keys are required.
+- Vize demo (after ~2026-11-15) presents the Batch 10 state, tagged `batch10`.
+  Every Batch 11 stage must keep `python -m arip run`, `tools/review_pool.py` and
+  `tools/measure_ranking_pool.py` working.
