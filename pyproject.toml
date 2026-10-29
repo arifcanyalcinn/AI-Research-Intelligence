@@ -55,12 +55,23 @@ embedding = [
     "usearch==2.26.2",
 ]
 
-# Phase 4+ (added when those phases begin).
-# WARNING: every pin on the llm line below is a 2024 version and is stale.
-# The embedding extra above puts the environment on transformers 5.x; the llm
-# line pins transformers 4.43.0, which cannot coexist with it. Re-pin the whole
-# line before uncommenting. See TD-019.
-# llm = ["transformers==4.43.0", "torch==2.3.1", "bitsandbytes==0.43.1", "accelerate==0.31.0"]
+# Phase 4 LLM stack (SDS 5.9). Optional, installed with the embedding extra:
+# `python -m pip install -e ".[embedding,llm]"`. Pins resolved together with
+# the embedding extra (Batch 11, TD-019).
+#
+# Install order matters on Windows. The torch wheel on PyPI is CPU-only, so the
+# CUDA build is installed first from the PyTorch index:
+#   python -m pip install torch==2.14.1 --index-url https://download.pytorch.org/whl/cu126
+# `torch==2.14.1` below is then satisfied by 2.14.1+cu126 (PEP 440 ignores the
+# local version label). Installing this extra first pulls in the CPU-only build.
+llm = [
+    "torch==2.14.1",
+    "transformers==5.20.2",
+    "bitsandbytes==0.50.2",
+    "accelerate==1.15.0",
+]
+
+# Phase 5+ (added when those phases begin).
 # review = ["python-telegram-bot==21.4"]
 # publish = ["tweepy==4.14.0"]
 

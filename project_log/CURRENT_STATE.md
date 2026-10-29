@@ -78,6 +78,8 @@ Target Hardware
 - AD-06 (embedding CPU-only, LLM GPU-only, never simultaneously) is
   load-bearing at this budget, not merely good practice.
 
-- Laptop thermal note: the first Phase 4 live run processes 306 ENRICHED
-  items at an 80 W cap. Sustained throttling is plausible and §7.2's
+- Laptop thermal note: the live pool holds 179 ENRICHED items (the fresh
+  Batch 10 database). The Batch 11 direction caps one generation pass at
+  pipeline.max_items_per_run (50), final after Stage 2. Generation runs at
+  an 80 W cap. Sustained throttling is plausible and §7.2's
   throughput estimate was not written for a power-limited mobile GPU.

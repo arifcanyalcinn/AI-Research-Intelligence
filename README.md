@@ -9,7 +9,7 @@ directories before the first migration:
 
     mkdir data
     mkdir logs
-    alembic upgrade head
+    python -m alembic upgrade head
 
 ---
 
