@@ -45,10 +45,29 @@ Known Compatibility Issues
 
 Environment Notes
 
-- Windows App Control blocks pip-generated launcher .exe files (pytest.exe and similar).
-  Use python -m pytest and python -m alembic. ruff.exe is unaffected.
+- Windows Smart App Control is OFF since 2026-11-16 (turned off by the user). It is the
+  feature earlier recorded here as "Windows App Control". While on, it blocked
+  pip-generated launcher .exe files (pytest.exe and similar) and, on 2026-11-16, unsigned
+  native libraries: usearch's compiled .pyd in both venvs (it had still loaded in .venv on
+  2026-11-14) and libbitsandbytes_cuda126.dll in the Batch 11 venv (WinError 4551). With it
+  on, neither venv could run the test suite; after turning it off, both pass (750).
+  Project rule unchanged: every command is written as python -m ... (python -m pytest,
+  python -m alembic, python -m ruff).
+- Two virtual environments, both editable installs of this checkout (git decides the code,
+  the venv decides the libraries):
+  - .venv (inside the repository): the demo environment. torch 2.14.0+cpu,
+    transformers 5.16.1. Never modified in Batch 11. Used for the vize demo
+    (2026-11-27) and for everything that does not load the LLM.
+  - C:\Users\ASUS\venvs\arip-llm (outside the repository; Python 3.11.9): the Batch 11
+    environment. torch 2.14.1+cu126 (CUDA 12.6), transformers 5.20.2, bitsandbytes 0.50.2,
+    accelerate 1.15.0. Used for anything that loads the LLM. To rebuild it: install CUDA
+    torch first (python -m pip install torch==2.14.1 --index-url
+    https://download.pytorch.org/whl/cu126), then python -m pip install -e
+    ".[dev,embedding,llm]". Never use --upgrade there.
 - The Hugging Face cache did not survive the machine's service; the embedding model was
-  re-downloaded in Batch 10. Expect first-use downloads for the Phase 4 LLM.
+  re-downloaded in Batch 10. The Phase 4 model, Qwen/Qwen2.5-3B-Instruct (about 6.2 GB),
+  is in the Hugging Face cache since 2026-11-16; check part 2 loaded it with the Hub
+  offline.
 - The pre-Batch-10 database and ANN index are archived in
   %USERPROFILE%\arip-archive\batch10-before-2026-10-28. The live data\arip.db is the fresh
   Batch 10 pool (250 rows, one run, scored under SDS §5.5.2).

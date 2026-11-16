@@ -968,3 +968,115 @@ Batch 11 — SDS Phase 4, local LLM generation. Prerequisites:
 - Vize demo (after ~2026-11-15) presents the Batch 10 state, tagged `batch10`.
   Every Batch 11 stage must keep `python -m arip run`, `tools/review_pool.py` and
   `tools/measure_ranking_pool.py` working.
+
+## Rulings (2026-10-29, on the PRE-CODE analysis)
+
+The analysis was accepted. Direction-setting rulings only:
+
+* **A1** – direction (ii): a config switch, default off, so `python -m arip run` behaves exactly
+  as today unless enabled. Name, location and the §5.15 amendment are ruled in Stage 8's PRE-CODE.
+* **A22** – a separate venv for Batch 11, outside the repository, at
+  `C:\Users\ASUS\venvs\arip-llm`. The demo venv `.venv` is never modified.
+* **TD-020** – direction (b): exclude `huggingface_models` and `huggingface_spaces` from the
+  semantic duplicate decision and from the index. Final after the Stage 2 measurement.
+* **TD-023 (b)** – direction: enforce `pipeline.max_items_per_run` at generation selection. Final,
+  with amendment text, after Stage 2.
+* **A21** – project_log files: the user sends the current files; the implementer edits them and
+  returns them in a zip with a manifest and a list of every removed line.
+* **A23** – the model licence (`qwen-research`) is recorded in D-008's scope; ruled before Phase 6.
+* **D-008** – draft approved as written; delivered for DECISIONS.md in Stage 5 together with the
+  `settings.yaml` change.
+* **Stage split 1–9** – approved as proposed.
+* **A2–A20** – deferred to the PRE-CODE of the stage that needs each. Input only, not rulings:
+  `batch11-ambiguities-dossier.md` (outside the repository, SHA-256 433cee64…e5d8, 2026-11-14).
+
+## Stage 1 – Dependencies, TD-019 (2026-10-29 to 2026-11-16)
+
+Commit 12bf3e5. Dependency and documentation change only; no code, no test change.
+
+* `pyproject.toml`: the stale commented `llm` line replaced by a live extra, `torch==2.14.1`,
+  `transformers==5.20.2`, `bitsandbytes==0.50.2`, `accelerate==1.15.0`, with the Windows install
+  order in a comment. The leftover heading for the later extras now reads "Phase 5+".
+* `README.md`: Setup line is `python -m alembic upgrade head`.
+* `CURRENT_STATE.md`: the stale "306 ENRICHED" thermal note corrected (179; cap direction).
+* Outside the repository: `check_llm_env.py` (SHA-256 fb70f842…00c7) and a PowerShell command
+  sheet.
+
+### Install (new venv `C:\Users\ASUS\venvs\arip-llm`, Python 3.11.9)
+
+The demo venv `.venv` was not modified (ruling A22). torch 2.14.1+cu126, CUDA 12.6,
+`torch.cuda.is_available()` True. The CUDA wheel was 2.6 GB from the PyTorch index at about
+2.4 MB/s; PyPI downloads ran at only 20–60 kB/s. `pip check` clean. Gate in the new venv:
+`ruff check` 0, `ruff format --check` 69 files formatted, `check-config` valid, pytest **750**.
+`Qwen/Qwen2.5-3B-Instruct` downloaded to the Hugging Face cache.
+
+### Environment finding: Windows Smart App Control
+
+Smart App Control was on and blocked unsigned native libraries. usearch's compiled `.pyd`
+(identical SHA-256 in both venvs) failed to load in **both** venvs, including the demo `.venv`,
+where it had still loaded on 2026-11-14; `libbitsandbytes_cuda126.dll` failed in the new venv
+(WinError 4551). The pip launcher .exe blocks recorded in Batch 10 as "Windows App Control" came
+from the same feature. Why usearch stopped loading between 2026-11-14 and 2026-11-16 was not
+determined. The user turned Smart App Control off on 2026-11-16; afterwards
+`python -m pytest -q --no-cov` gives 750 passed in both venvs. The `python -m …` rule stays.
+Tested fact for the demo: while Smart App Control was on, usearch's compiled module failed to
+import in both venvs, and `libbitsandbytes_cuda126.dll` failed to load.
+
+### Check results (as reported by the user, 2026-11-16)
+
+Part 1 (no model): bitsandbytes CUDA backend, `libbitsandbytes_cuda126.dll`, NF4 packing, quant
+type and forward-pass checks all pass.
+
+Part 2 (`Qwen/Qwen2.5-3B-Instruct`, 4-bit NF4, Hub offline):
+
+| Measurement (compute dtype bfloat16) | Value |
+|---|---|
+| Load time | 6.2 s |
+| Linear4bit layers, quant type | 252, nf4 |
+| `get_memory_footprint()` | 1917 MiB |
+| VRAM allocated after load | 2095.9 MiB |
+| Greedy generation | 30.8 tok/s, stop = eos, sensible text |
+| `max_new_tokens=8` | stops as max_tokens |
+| Same seed / different seed | reproducible / differs |
+| Peak VRAM allocated by torch | 2134.8 MiB of 8188 MiB |
+| nvidia-smi before / after load / after unload | 732 / 2989 / 895 MiB |
+
+The same run with compute dtype float16 gave the same results at 29.4 tok/s.
+
+One check failed in every run: "allocated 8.1 MiB, reserved 22.0 MiB after empty_cache" (part 1,
+a 256×256 test layer) and "allocated 8.1 MiB, reserved 44.0 MiB" (part 2, the full model). The
+check's limit is 16 MiB on each figure, so it failed on *reserved*, not on the 8.1 MiB. The
+8.1 MiB is the same for a tiny layer and a 2 GB model, so it is not model memory. It is the
+cuBLAS workspace that PyTorch keeps per process after the first matrix product
+(2 × 4096 KiB + 8 × 16 KiB = 8.125 MiB); the reserved figure is the allocator segments that hold
+it. Confirmed by a diagnostic on 2026-11-16 in the `arip-llm` venv: after one 64×64 matrix
+product and `empty_cache()`, allocated / reserved = 8.125 / 20.0 MiB; after
+`torch._C._cuda_clearCublasWorkspaces()` and `empty_cache()`, 0.0 / 0.0 MiB. The check script's
+limit on reserved memory was too strict; the script was not changed. Consequence for
+ruling A20 and Stage 5: a "VRAM released" assertion compares allocated memory against the value
+before the model was loaded, with a small tolerance, and does not require reserved memory to be
+zero.
+
+Data for ruling A15 (Stage 5 PRE-CODE): bfloat16 30.8 tok/s against float16 29.4 tok/s; peak
+2134.8 MiB of 8188 MiB. Double quantization was not measured.
+
+TD-019 → Removed Debt. An ambiguity dossier for A2–A20 was prepared outside the repository
+(`batch11-ambiguities-dossier.md`, SHA-256 433cee64…e5d8); its recommendations are input for the
+stage PRE-CODEs, not rulings. Correction to it: the rule cited for A12 is in SDS §5.4, not §5.2.
+
+## Stage 2 – Read-only measurements for TD-020 and TD-023
+
+### Rulings (2026-11-16, on the Stage 2 PRE-CODE)
+
+* **Q1** – one tool: `tools/measure_generation_pool.py`, with subcommands `dedup`, `selection`
+  and `compare`.
+* **Q2** – approved: a read-only snapshot of `data/arip.db` through the existing
+  `tools/measure_ranking_pool.py snapshot` (SQLite backup API), as in Batch 10.
+* **Q3** – the read-only helpers are copied into the new tool; `measure_ranking_pool.py` is not
+  modified (the demo depends on it).
+* **Q4** – NULL `published_date` in the tie-break: show both placements (first and last) and
+  report whether it matters.
+* **Q5** – the one-line embedding-text formula is repeated in the tool; the check script asserts
+  that it equals the embed stage's output on fixtures.
+* **Q6** – the TD-020 measurement runs in both venvs (`.venv`, then `arip-llm`), followed by
+  `compare`.
