@@ -190,6 +190,42 @@ def test_get_by_status_returns_empty_list(repo: ItemRepository) -> None:
     assert result == []
 
 
+def test_get_by_status_orders_equal_collection_times_by_id(
+    repo: ItemRepository, db_session: Session
+) -> None:
+    """T14 / D-009: collected_at, then id. SQL leaves ties undefined otherwise.
+
+    The SQL is checked as well as the rows, because SQLite happens to return
+    such ties in id order even without the key: the row order alone could not
+    tell the two queries apart.
+    """
+    from sqlalchemy import event
+
+    same = datetime(2026, 11, 1, 9, 0, 0)
+    later = repo.create(
+        {**make_item_data(status=ItemStatus.RANKED), "collected_at": same + timedelta(minutes=1)}
+    )
+    first = repo.create({**make_item_data(status=ItemStatus.RANKED), "collected_at": same})
+    second = repo.create({**make_item_data(status=ItemStatus.RANKED), "collected_at": same})
+    db_session.flush()
+
+    statements: list[str] = []
+
+    def capture(conn, cursor, statement, parameters, context, executemany):  # noqa: ANN001
+        statements.append(statement)
+
+    engine = db_session.get_bind()
+    event.listen(engine, "before_cursor_execute", capture)
+    try:
+        ranked = repo.get_by_status(ItemStatus.RANKED)
+    finally:
+        event.remove(engine, "before_cursor_execute", capture)
+
+    assert [i.id for i in ranked] == [first.id, second.id, later.id]
+    order_by = statements[-1].split("ORDER BY", 1)[1].split()
+    assert order_by == ["items.collected_at", "ASC,", "items.id", "ASC"]
+
+
 # ---------------------------------------------------------------------------
 # get_by_status_and_language()
 # ---------------------------------------------------------------------------

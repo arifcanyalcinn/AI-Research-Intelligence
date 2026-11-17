@@ -138,15 +138,24 @@ class ItemRepository:
         return self._session.execute(stmt).scalar_one_or_none()
 
     def get_by_status(self, status: ItemStatus) -> list[Item]:
-        """Fetch all items with the given status, ordered by collected_at.
+        """Fetch all items with the given status, ordered by collected_at, then id.
+
+        The secondary key makes the order deterministic (D-009). SQL leaves the
+        order among equal ``collected_at`` values undefined, and the embedding
+        stage processes items in this order, so among near-duplicates it decides
+        which item survives.
 
         Args:
             status: The ItemStatus to filter on.
 
         Returns:
-            List of Items, oldest first.
+            List of Items, oldest first; equal collection times in id order.
         """
-        stmt = select(Item).where(Item.status == status.value).order_by(Item.collected_at.asc())
+        stmt = (
+            select(Item)
+            .where(Item.status == status.value)
+            .order_by(Item.collected_at.asc(), Item.id.asc())
+        )
         return list(self._session.execute(stmt).scalars().all())
 
     def get_by_status_and_language(self, status: ItemStatus, language: str) -> list[Item]:

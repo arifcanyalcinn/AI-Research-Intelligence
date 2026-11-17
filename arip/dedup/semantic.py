@@ -34,6 +34,13 @@ and is exactly what reconciliation repairs.
 ``embedding`` extra and are imported inside functions, never at module level —
 the same discipline the embedding backends follow, for the same reason.
 
+**Sources excluded from semantic deduplication (§5.7.1).** Items of the sources
+in ``SEMANTIC_DEDUP_EXCLUDED_SOURCES`` are never checked and never indexed. The
+rule is applied by the caller, ``EmbedStage``, which knows each item's source;
+this class keys its index by item id only. ``remove()`` exists for the one case
+the caller cannot prevent: an index written before §5.7.1 that still holds such
+items, which reconciliation clears.
+
 **A measured correction to §5.7's rationale.** §5.7 justifies ``usearch`` as
 "pure Python, no native BLAS dependency issues on Windows". The installed
 wheel is not pure Python: usearch 2.26.2 ships compiled extension modules. The
@@ -71,6 +78,20 @@ similarity by §5.7.
 """
 
 _TEMP_SUFFIX = ".tmp"
+
+SEMANTIC_DEDUP_EXCLUDED_SOURCES: frozenset[str] = frozenset(
+    {"huggingface_models", "huggingface_spaces"}
+)
+"""Sources excluded from semantic deduplication (SDS §5.7.1).
+
+Keyed by ``source_id``, as §5.7.1's table is. Their embedding text is a
+repository id followed by ". " (TD-003, TD-004), and the ids of size and version
+variants lie close together in embedding space, so a similarity above the
+threshold says nothing about the content. Their identity is the repository id,
+which exact deduplication already covers.
+
+Fixed by the amendment, not configurable — as §5.5.2 fixes its declared value.
+"""
 
 
 class SemanticDeduplicator:
@@ -302,6 +323,27 @@ class SemanticDeduplicator:
             return
 
         logger.debug("ann_index_item_added", item_id=item_id, size=len(index))
+
+    def remove(self, item_id: int) -> bool:
+        """Remove ``item_id``'s vector from the index (SDS §5.7.1).
+
+        Used only by reconciliation, to clear items of an excluded source from an
+        index written before §5.7.1. Returns whether a vector was removed; a key
+        the index does not hold is not an error, because reconciliation may ask
+        about any item. The removal reaches the file at the next
+        ``save_index()``, which the caller makes after committing.
+
+        Raises:
+            RuntimeError: If called before ``load_index()``.
+        """
+        index = self._require_index()
+
+        if not index.contains(item_id):
+            return False
+
+        index.remove(item_id)
+        logger.info("ann_index_item_removed", item_id=item_id, size=len(index))
+        return True
 
     # ------------------------------------------------------------------
     # Search primitive — shared by is_duplicate() and the novelty signal

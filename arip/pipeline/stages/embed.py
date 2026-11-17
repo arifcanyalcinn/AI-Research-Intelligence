@@ -30,6 +30,13 @@ mark the entire run DUPLICATE, which is terminal.
 loss, and the two stores would disagree permanently in the direction
 reconciliation cannot repair.
 
+**Sources excluded from semantic deduplication (§5.7.1).** An item whose
+``source_id`` is in ``SEMANTIC_DEDUP_EXCLUDED_SOURCES`` is embedded and gets its
+novelty from ``nearest()`` like any other item, but ``is_duplicate()`` is not
+called and ``add()`` is not called: it goes ``EMBEDDED -> ENRICHED`` and is never
+a neighbour or survivor of anything. Reconciliation leaves such items out, and
+removes any that an index written before §5.7.1 still holds.
+
 **signal_breakdown is read, merged and written — never replaced.** ``RankStage``
 wrote the four ranking signals into that column at ``COLLECTED -> RANKED``.
 Serialising a fresh ``{"novelty": ...}`` object here would silently destroy
@@ -72,6 +79,7 @@ from typing import TYPE_CHECKING
 
 import structlog
 
+from arip.dedup.semantic import SEMANTIC_DEDUP_EXCLUDED_SOURCES
 from arip.enums import ItemStatus
 from arip.exceptions import EmbeddingError
 
@@ -182,7 +190,7 @@ class EmbedStage:
             )
             return None
 
-        embedded = enriched = duplicates = failed = 0
+        embedded = enriched = duplicates = failed = skipped = 0
 
         with self._embedder as embedder:
             deduplicator = self._deduplicator_factory(embedding_dim=embedder.embedding_dim)
@@ -202,6 +210,8 @@ class EmbedStage:
                     failed += 1
                     continue
                 embedded += 1
+                if item.source_id in SEMANTIC_DEDUP_EXCLUDED_SOURCES:
+                    skipped += 1
                 if outcome:
                     duplicates += 1
                 else:
@@ -215,6 +225,7 @@ class EmbedStage:
             enriched=enriched,
             duplicates=duplicates,
             failed=failed,
+            dedup_skipped_excluded_source=skipped,
             index_size=deduplicator.size,
         )
         return deduplicator
@@ -245,7 +256,20 @@ class EmbedStage:
 
         # Two calls; see the module docstring. nearest() supplies the novelty
         # value, is_duplicate() owns the threshold comparison.
-        _, similarity = deduplicator.nearest(vector, item.id)
+        nearest_id, similarity = deduplicator.nearest(vector, item.id)
+
+        if item.source_id in SEMANTIC_DEDUP_EXCLUDED_SOURCES:
+            # §5.7.1: novelty as for any item; no duplicate check, no index entry.
+            novelty = NOVELTY_WITHOUT_NEIGHBOUR if nearest_id is None else 1.0 - similarity
+            self._embed_ok(item, embedder.model_name, novelty)
+            logger.info(
+                "semantic_dedup_skipped_excluded_source",
+                item_id=item.id,
+                source_id=item.source_id,
+            )
+            self._state_machine.transition(item, ItemStatus.ENRICHED)
+            return False
+
         is_dup, neighbour_id = deduplicator.is_duplicate(vector, item.id)
 
         novelty = NOVELTY_WITHOUT_NEIGHBOUR if neighbour_id is None else 1.0 - similarity
@@ -405,8 +429,18 @@ class EmbedStage:
         Failures are per-item and non-fatal. An item that cannot be re-embedded
         stays missing from the index and is retried next run; aborting here
         would prevent the run from doing any new work at all.
+
+        §5.7.1: items of an excluded source are left out of the result. A
+        missing one is not re-added, and one that an index written before
+        §5.7.1 still holds is removed.
         """
-        candidates = self._item_repo.get_all_with_embeddings()
+        found = self._item_repo.get_all_with_embeddings()
+        excluded = [item for item in found if item.source_id in SEMANTIC_DEDUP_EXCLUDED_SOURCES]
+        candidates = [
+            item for item in found if item.source_id not in SEMANTIC_DEDUP_EXCLUDED_SOURCES
+        ]
+
+        removed = sum(1 for item in excluded if deduplicator.remove(item.id))
         missing = [item for item in candidates if not deduplicator.contains(item.id)]
 
         if not missing:
@@ -416,6 +450,7 @@ class EmbedStage:
                 stage="embedding",
                 checked=len(candidates),
                 restored=0,
+                removed_excluded_source=removed,
             )
             return
 
@@ -441,4 +476,5 @@ class EmbedStage:
             checked=len(candidates),
             restored=restored,
             still_missing=len(missing) - restored,
+            removed_excluded_source=removed,
         )

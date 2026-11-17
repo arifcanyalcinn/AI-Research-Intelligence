@@ -979,6 +979,35 @@ For each result, check if `item_id` is in the loaded index. If not, re-embed and
 
 **Testing Strategy:** Test `is_duplicate()` with known similar pairs using mock embeddings (cosine similarity calculated directly). Test index save/load round-trip. Test reconciliation logic with a mocked DB.
 
+### 5.7.1 — Sources Excluded from Semantic Deduplication
+
+**Amends:** §5.7 — its Responsibilities line *"Update ANN index with new items that pass deduplication"*, the sentence *"On each run, embeddings for new items are added after the dedup check."*, and its Index Reconciliation on Restart; and §3.3 — the Action of `RANKED → EMBEDDED`, which reads *"Set `embedding_computed_at`, `embedding_model_name`; add vector to ANN index"*, and the Trigger of `EMBEDDED → ENRICHED`, which reads *"`dedup_pass` — no duplicate found in ANN index above threshold"*. All original texts are left in place.
+
+For two sources the embedding text of §5.6 identifies a repository, not its content. `huggingface_models` and `huggingface_spaces` carry no abstract and use the repository id as their title (TD-003, TD-004), so the text is a repository id followed by ". ". The repository ids of size and version variants of one model family lie close together in embedding space. On the measured pool (Batch 11, Stage 2; 187 embedded items), all three semantic duplicates stored for `huggingface_models` were variants of a different model (similarities 0.9282, 0.9463 and 0.9693), and all six pairs of models at or above the threshold were variants. For these sources identity is the repository id, which exact deduplication (§5.7, `content_hash`) already covers.
+
+**Rule.** An item whose `source_id` is named in the table below is excluded from semantic deduplication.
+
+| `source_id` |
+|---|
+| `huggingface_models` |
+| `huggingface_spaces` |
+
+1. It is embedded as §5.6 specifies, and `RANKED → EMBEDDED` sets `embedding_computed_at` and `embedding_model_name` as §3.3 states. Its vector is not added to the ANN index.
+2. It is not checked against the index for duplication. It passes `EMBEDDED → ENRICHED` (`dedup_pass`) and is never marked `DUPLICATE` by semantic deduplication.
+3. Because its vector is never indexed, it is never the nearest neighbour, or the surviving item, of any other item.
+4. Its novelty (§5.5, AD-19) is the ANN distance to its nearest neighbour in the index, computed as for any other item. The index holds no item of an excluded source.
+5. Reconciliation (§5.7) leaves items of these sources out of its result: a missing one is not re-embedded or added, and one that an existing index still holds is removed from it. For this, `SemanticDeduplicator` gains `remove(item_id) -> bool`. An index built before this subsection loses those vectors at its first reconciliation, and the next `save_index()` persists that.
+
+Exact deduplication applies to these sources unchanged. Items already marked `DUPLICATE` are not re-processed: this subsection changes no stored row.
+
+**Measured basis (Batch 11, Stage 2).** No pair at or above the threshold joined an excluded source to any other source; the highest such similarity was 0.5243. The genuine duplicates on the measured pool (`huggingface_papers` → `arxiv`) were all at 1.0000, and the nearest non-duplicate between those two sources was at 0.8030.
+
+**Logging.** Each excluded item logs `semantic_dedup_skipped_excluded_source` at INFO, with its item id and source id.
+
+This subsection adds no configuration: the excluded sources are fixed here, as §5.5.2 fixes its declared value. `semantic_threshold` is unchanged and applies to every other source.
+
+*No frozen decision in §9.1 is altered by this amendment.*
+
 ---
 
 ## 5.8 Prompt Manager
