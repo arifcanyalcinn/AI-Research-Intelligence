@@ -189,3 +189,80 @@ delivered as its own format-only stage, never inside a logic change. Line
 endings follow each file; this decision does not change them.
 
 Introduced in Batch 10, Stage 1b.
+
+
+---
+
+## D-008
+
+The Phase 4 LLM is `Qwen/Qwen2.5-3B-Instruct`, loaded by `TransformersBackend`
+(SDS §5.9) on the GPU with bitsandbytes 4-bit NF4 quantization
+(`BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4")`).
+`llm.model_name` in `config/settings.yaml` is set to it. Closed for Batch 11.
+
+### Reason
+
+The target GPU is an RTX 4070 Laptop with 8 GB (8188 MiB) VRAM. SDS §7.1 names
+"Qwen2.5-3B-Instruct 4-bit (~2 GB)" for 8 GB budgets, and gives multilingual
+(Turkish) strength as its reason for preferring Qwen. bitsandbytes is the
+quantization method §5.9 specifies for the v1 backend, so no new dependency or
+amendment is needed. The quant type is stated because transformers 5.x defaults
+to `fp4`.
+
+### Rejected Alternatives
+
+- Qwen2.5-7B-Instruct 4-bit (§7.1 default): written for 12 GB, and leaves little
+  headroom on a power-limited laptop GPU.
+- Phi-3.5-mini-instruct 4-bit: the §7.1 alternative, but §7.1's multilingual
+  reason for Qwen applies.
+- Pre-quantized AWQ/GPTQ, or GGUF through llama.cpp: each changes §5.9's v1
+  implementation and adds a dependency.
+- Unquantized fp16: about 6.2 GB of weights alone on 8 GB.
+
+### Scope
+
+Model and quantization method only. AD-06 is unchanged. Compute dtype and double
+quantization follow ruling A15. If the Stage 1 environment check fails, the
+TD-019 fallback chain applies, each step by its own ruling. The model card
+licence is `qwen-research`; recorded, not ruled. The config/settings.yaml
+value is changed in Stage 5, together with the backend that reads it.
+
+Introduced in Batch 11.
+
+---
+
+## D-009
+
+`ItemRepository.get_by_status()` returns items ordered by `collected_at`
+ascending, then `id` ascending.
+
+### Reason
+
+SQL leaves the order among rows with equal `collected_at` undefined. The
+embedding stage processes RANKED items in this order, so among near-duplicates
+the order decides which item survives and which is marked `DUPLICATE`. On the
+Batch 10 pool, 98 of the 187 embedded rows share their `collected_at` value with
+another row (29 groups). SQLite returned such ties in id order in a test, which
+is not a guarantee.
+
+### Rejected Alternatives
+
+- Sorting inside `EmbedStage` only: leaves the rank stage, the method's other
+  caller, with an undefined order, and moves ordering out of the repository
+  that owns the query.
+- `embedding_computed_at`, or another timestamp, as the tiebreak: timestamps
+  tie on Windows for items processed within one clock tick (Batch 11, Stage 2).
+- No change: the survivor of a near-duplicate pair would depend on the query
+  planner.
+
+### Scope
+
+SDS §5.14 lists the method's signature and no ordering, so this needs no
+amendment. The rank stage's results do not depend on the order: its cohort
+percentiles are computed over the whole batch. `get_by_status_and_language()`
+is not affected; its order is TD-023 (a), delivered in Stage 4. Pinned by
+`test_get_by_status_orders_equal_collection_times_by_id`, which checks the
+generated SQL, because SQLite's row order alone cannot tell the two queries
+apart.
+
+Introduced in Batch 11, Stage 3.

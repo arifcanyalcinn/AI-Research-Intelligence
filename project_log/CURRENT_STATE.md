@@ -27,8 +27,8 @@ Implemented Sources
 
 Current Test Count
 
-750 Passed
-672 Passed, 2 Skipped without the [embedding] extra
+765 Passed
+683 Passed, 3 Skipped without the [embedding] extra
 
 Gate (Decision 004 + D-007): python -m pytest, ruff check ., ruff format --check ., python -m arip check-config
 

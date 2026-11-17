@@ -1152,3 +1152,66 @@ in id order in a test (index on status, then a sort), which is not a guarantee. 
 * **R3** – TD-023 (b): the cap at generation selection is final; the amendment closing §9.2's
   deferral is delivered in Stage 4. The tie-break order stays as ruled.
 * **R4** – the backlog consequence of the cap is recorded as TD-024 (Phase 7); no action.
+
+## Stage 3 – TD-020 and the embedding order (2026-11-17)
+
+### Rulings (2026-11-17, on the Stage 3 PRE-CODE)
+
+* **P1** (a) – an excluded item's novelty is computed with `nearest()`, as for any item.
+* **P2** (i) – reconciliation removes excluded vectors from an existing index;
+  `SemanticDeduplicator.remove(item_id) -> bool` added.
+* **P3** – the secondary order goes into `ItemRepository.get_by_status()`: `collected_at`, then
+  `id`. Recorded as D-009.
+* **P4** – D-008 (as approved on 2026-10-29) and D-009 delivered together at this closure, in that
+  order; the `settings.yaml` model change stays in Stage 5.
+* **P5** – the 2026-10-29 decision stands: the vize demo on 2026-11-27 shows the Batch 10 state
+  exactly. Stage 3 is committed on `main` as normal; every rehearsal and the demo run from the tag
+  (`git switch --detach batch10`, then `git switch main`). No live demo-check run in this stage;
+  its verification is the test suite and the mutations.
+* **P6** – the 3 DUPLICATE rows in `data/arip.db` are not changed.
+* SDS §5.7.1 text approved verbatim, with points 4 and 5 as above.
+
+### Delivered
+
+* `arip/dedup/semantic.py` – `SEMANTIC_DEDUP_EXCLUDED_SOURCES` (`huggingface_models`,
+  `huggingface_spaces`, keyed by `source_id`) and `remove()`.
+* `arip/pipeline/stages/embed.py` – an excluded item is embedded and gets its novelty from
+  `nearest()`, then goes `EMBEDDED → ENRICHED` without `is_duplicate()` or `add()`; it logs
+  `semantic_dedup_skipped_excluded_source` (INFO, item id and source id), and
+  `embed_stage_completed` carries `dedup_skipped_excluded_source`. Reconciliation leaves
+  excluded items out and removes any an older index still holds (`removed_excluded_source`).
+* `arip/db/repositories/items.py` – `get_by_status()` orders by `collected_at, id` (D-009).
+* `docs/frozen_sds.md/frozen_sds.md` – §5.7.1 inserted after §5.7's Testing Strategy;
+  `git diff --numstat` 29 added, 0 deleted.
+* Tests: `tests/unit/pipeline/test_embed_excluded_sources.py` (T1–T8, T9 with doubles, T10),
+  `tests/unit/dedup/test_semantic_excluded.py` (T9 against a real usearch index file through save
+  and reload, T11–T13), and T14 in `tests/unit/test_repositories.py`. T14 also checks the
+  generated SQL, because SQLite returns tied rows in id order even without the key.
+
+### Verification
+
+* Outside the repository, `stage3_verify.py` (SHA-256 fd08c87c…82fc): 18/18 PASS.
+  `test_embed.py` (30 tests) and `test_semantic.py` (33 tests) byte-identical; in
+  `test_repositories.py` all 21 existing functions identical by syntax tree, change an insertion
+  only. Full suite 765 passed; 683 passed and 3 skipped without the `embedding` extra.
+* Mutations M1–M11, full suite each; the failing set equalled the predicted set every time:
+  guard removed; excluded items indexed; guard keyed on `source_type`; `huggingface_papers` added
+  to the set; `huggingface_spaces` dropped; reconciliation re-adds; reconciliation does not
+  remove; `remove()` a no-op; excluded novelty fixed at 1.0; `id` dropped from the order; `id`
+  descending.
+* On the user's machine: all 7 file hashes matched; `git diff --numstat` as stated
+  (`frozen_sds.md` 29/0); 765 passed; `ruff check` clean; 71 files formatted; `check-config`
+  valid. The reviewer compared the inserted §5.7.1 text line by line with the approved text:
+  identical, plus the separating blank line. Committed and pushed.
+* Line-ending finding: the user's working-tree `arip/dedup/semantic.py` was LF
+  (`git ls-files --eol`: `i/lf w/lf`), content identical to HEAD, so its pre-change hash
+  differed from the one delivered; the zip replaced it with the CRLF version.
+
+TD-020 → Removed Debt. D-008 and D-009 added to DECISIONS.md. TD-025 recorded: the
+human-relevance evaluation is not yet done and is needed before calibration decisions and before
+Phase 6. The project log and `batches/BATCH-10-DECISIONS.md` were searched for a planned human
+evaluation (a 26-item scoring, a blind expert ranking, a `yayinlanmali_mi` column): none is
+recorded as planned, deferred or dropped. `tools/review_pool.py` writes no such column.
+
+Note: `tools/review_pool.py` prints that it wrote `enriched_pool.csv`, but it writes only
+`enriched_pool.html`; no code change before the vize.
