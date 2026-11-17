@@ -40,9 +40,18 @@ dedup  (TD-020; needs the ``embedding`` extra)
     (direction (b) of TD-020), with every decision that would change.
     ``--csv`` writes every pair's similarity to a new file for ``compare``.
 
-    The replay processes rows in ``embedding_computed_at`` order and assumes
-    the ANN index began empty and was never rebuilt. The stage asks an
-    approximate index for the nearest neighbour; the replay uses the exact one.
+    The replay processes rows in the embedding stage's own order: the stage
+    fetches RANKED items with ``ORDER BY collected_at`` (``ItemRepository.
+    get_by_status``), and the replay uses ``collected_at, id``. SQL leaves the
+    order among equal ``collected_at`` values undefined; the ``id`` tiebreak is
+    what SQLite returned for that query in a test (index on status, then a
+    sort), not a guarantee. The order is not taken from ``embedding_computed_at``,
+    which can tie when items are processed within one clock tick (Batch 11
+    Stage 2, Windows). Instead the report checks the replay order against it:
+    a pair embedded in the opposite order is a contradiction and is listed.
+    The replay also assumes the ANN index began empty and was never rebuilt.
+    The stage asks an approximate index for the nearest neighbour; the replay
+    uses the exact one.
     A replay that does not reproduce the stored statuses is reported, not
     hidden: it means one of those assumptions, or the embedding environment,
     differs from the run that built the pool.
@@ -484,6 +493,7 @@ class EmbRow:
     abstract: str | None
     duplicate_of_id: int | None
     is_semantic: bool
+    collected_at: str
     embedded_at: str
 
 
@@ -509,7 +519,10 @@ class DedupResults:
     threshold: float
     floor: float
     runs: int
-    distinct_timestamps: bool
+    collected_ties: tuple[int, int]
+    """(rows sharing a collected_at value with another row, number of such groups)."""
+    embedded_ties: tuple[int, int]
+    """The same for embedding_computed_at."""
     model: str
     dim: int
     by_status: dict[str, int] = field(default_factory=dict)
@@ -529,6 +542,8 @@ class DedupResults:
     lost_cross_pairs: list[Pair] = field(default_factory=list)
     """Pairs >= threshold between an excluded source and any other source."""
     all_pairs: list[Pair] = field(default_factory=list)
+    contradictions: list[tuple[int, int]] = field(default_factory=list)
+    """(a, b): a comes before b in the replay order but was embedded after b."""
 
 
 def embedding_text(title: str | None, abstract: str | None) -> str:
@@ -537,16 +552,39 @@ def embedding_text(title: str | None, abstract: str | None) -> str:
 
 
 def load_embedded_rows(conn: sqlite3.Connection) -> list[EmbRow]:
-    """Every row the embedding stage processed, in the order it processed them."""
+    """Every row the embedding stage processed, in the stage's own order.
+
+    ``EmbedStage.run`` processes ``get_by_status(RANKED)``, which orders by
+    ``collected_at`` only; ``id`` breaks ties (see the module docstring).
+    """
     cursor = conn.execute(
         "SELECT id, source_id, status, title, abstract, duplicate_of_id, "
-        "is_semantic_duplicate, embedding_computed_at FROM items "
-        "WHERE embedding_computed_at IS NOT NULL ORDER BY embedding_computed_at, id"
+        "is_semantic_duplicate, collected_at, embedding_computed_at FROM items "
+        "WHERE embedding_computed_at IS NOT NULL ORDER BY collected_at, id"
     )
     return [
-        EmbRow(i, source, status, title, abstract, dup, bool(semantic), str(at))
-        for i, source, status, title, abstract, dup, semantic, at in cursor
+        EmbRow(i, source, status, title, abstract, dup, bool(semantic), str(coll), str(at))
+        for i, source, status, title, abstract, dup, semantic, coll, at in cursor
     ]
+
+
+def tie_counts(values: Sequence[str]) -> tuple[int, int]:
+    """(rows whose value is shared with another row, number of shared values)."""
+    shared = [n for n in Counter(values).values() if n > 1]
+    return (sum(shared), len(shared))
+
+
+def order_contradictions(rows: Sequence[EmbRow]) -> list[tuple[int, int]]:
+    """Pairs in replay order whose embedding_computed_at is strictly reversed.
+
+    Equal timestamps are not contradictions: they say nothing about order.
+    """
+    found = []
+    for i in range(len(rows)):
+        for j in range(i + 1, len(rows)):
+            if rows[i].embedded_at > rows[j].embedded_at:
+                found.append((rows[i].id, rows[j].id))
+    return found
 
 
 def similarity_matrix(rows: Sequence[EmbRow], embedder: object):
@@ -619,7 +657,9 @@ def measure_dedup(
         threshold=threshold,
         floor=floor,
         runs=runs,
-        distinct_timestamps=len({r.embedded_at for r in rows}) == len(rows),
+        collected_ties=tie_counts([r.collected_at for r in rows]),
+        embedded_ties=tie_counts([r.embedded_at for r in rows]),
+        contradictions=order_contradictions(rows),
         model=str(getattr(embedder, "model_name", "?")),
         dim=0,
         by_status=dict(Counter(f"{r.source_id}/{r.status}" for r in rows)),
@@ -772,7 +812,24 @@ def render_dedup(res: DedupResults) -> str:
 
     add("")
     add("5. Replay under the current rule, against the stored statuses")
-    add(f"     embedding_computed_at values all distinct: {'yes' if res.distinct_timestamps else 'NO (order among equal values is by id: an assumption)'}")
+    add("     replay order: collected_at, then id (the embedding stage's own query order)")
+    rows_c, groups_c = res.collected_ties
+    rows_e, groups_e = res.embedded_ties
+    add(
+        f"     collected_at ties: {rows_c} rows in {groups_c} groups"
+        + ("" if not rows_c else " (order among them is by id: SQLite's observed order, not guaranteed)")
+    )
+    add(f"     embedding_computed_at ties: {rows_e} rows in {groups_e} groups (not used for ordering)")
+    if res.contradictions:
+        add(
+            f"     ORDER CONTRADICTIONS: {len(res.contradictions)} pairs were embedded in the "
+            "opposite order to the replay"
+        )
+        for a, b in res.contradictions[:LIST_LIMIT]:
+            add(f"     {label(a)}")
+            add(f"          replayed before, embedded after: {label(b)}")
+    else:
+        add("     order contradictions with embedding_computed_at: none")
     if res.runs != 1:
         add(f"     note: {res.runs} pipeline runs; the replay assumes the index began empty")
         add("     and was never rebuilt.")
