@@ -1080,3 +1080,75 @@ stage PRE-CODEs, not rulings. Correction to it: the rule cited for A12 is in SDS
   that it equals the embed stage's output on fixtures.
 * **Q6** – the TD-020 measurement runs in both venvs (`.venv`, then `arip-llm`), followed by
   `compare`.
+
+### Delivered
+
+* `tools/measure_generation_pool.py`, read-only, with `selection`, `dedup` and `compare`. First
+  version SHA-256 d27cbeb2…c8dd; fixed version (stage 2b, below) SHA-256 db22a2d6…ec32.
+  `tools/measure_ranking_pool.py` and `tools/review_pool.py` unchanged.
+* Outside the repository: `check_measure_generation_pool.py` (stage 2b version SHA-256
+  53a9f18f…f483) and a PowerShell command sheet. No application code and no test changed; pytest
+  stays at 750.
+
+### Windows finding: tied timestamps, and the fix (stage 2b)
+
+On Windows the first version of the check script failed its dedup hand-value comparison and the
+control check. Cause: the replay was ordered by `embedding_computed_at`, and on Windows those
+values tied for items processed in quick succession (the made-up pool embeds ten items in a few
+milliseconds). Among equal values the replay fell back to id order, which is not the order the
+stage processed them in. Reproduced on Linux by setting every timestamp equal: the old tool then
+mismatched 8 of 10 rows. The real pool was not affected: each real embedding takes longer than a
+clock tick, so its timestamps were distinct and the first run reproduced 187/187.
+
+Fix: the replay now uses the embedding stage's own query order, `collected_at` then `id`
+(`EmbedStage.run` processes `ItemRepository.get_by_status(RANKED)`, which orders by
+`collected_at` only). `embedding_computed_at` is used only to check that order; any pair embedded
+in the opposite order is reported as a contradiction. The check script repeats its dedup hand
+values on a copy with every timestamp equal and on one with a reversed pair, and two new
+deliberate breakages are caught (B14 timestamp ordering, B15 contradiction check disabled).
+
+Finding about the stage: SQL leaves the order among RANKED items with equal `collected_at`
+undefined. That order decides which item of a near-duplicate pair survives. SQLite returned ties
+in id order in a test (index on status, then a sort), which is not a guarantee. Fix ruled in R2.
+
+### Results (2026-11-17)
+
+* Check script on Windows (demo venv, Python 3.11.9): 59/59 PASS.
+* Snapshot SHA-256 7a7d6541…5103, identical to the Batch 10 Stage 4 state, unchanged by every run.
+* `selection`: 179 ENRICHED (arxiv 50, github_trending 46, huggingface_models 24,
+  huggingface_papers 43, huggingface_spaces 16). No NULL in any field generation needs, so NULL
+  date placement changes nothing. 60 rows in 9 `importance_score` tie groups; engagement
+  separates 10; topic and published_date separate none; id decides the remaining 50 rows (4 groups
+  of exact ties). Cutoff at 50: a 2-row tie, separated by engagement. Cutoff at 100: a 16-row tie,
+  separated only by id. Pass 1 is arxiv 15, github_trending 12, huggingface_papers 23, identical
+  to the id-only order and to the Batch 10 stored top 50. Draining the pool with no new items
+  takes 4 passes; passes 2–4 hold items published as far back as 2022-03-02.
+* `dedup`, both venvs: 187 embedded rows; replay reproduces 187/187; `embedding_computed_at` ties
+  0; `collected_at` ties 98 rows in 29 groups; no order contradictions.
+  * The 3 stored `huggingface_models` duplicates are size or version variants: Qwen/Qwen3-8B →
+    Qwen/Qwen3-0.6B 0.9282; Qwen/Qwen3.5-4B → Qwen/Qwen3-0.6B 0.9463;
+    google/gemma-4-26B-A4B-it → google/gemma-4-31B-it 0.9693. All 6 model–model pairs ≥ 0.92 are
+    variants.
+  * The 5 stored `huggingface_papers` → `arxiv` duplicates are all at 1.0000; the nearest
+    non-duplicate between those two sources is 0.8030.
+  * 0 cross-source pairs ≥ 0.92 involve `huggingface_models` or `huggingface_spaces`; their
+    highest similarity to any other source is 0.5243 (github_trending × huggingface_models). No
+    pair involving a Space reaches 0.85.
+  * With both sources excluded: 8 stored duplicates → 5; the 3 model duplicates are the only
+    changes.
+* `compare`: 17,391 pairs; largest difference 0.000000; 0 pairs on different sides of 0.92. The
+  two venvs embed identically.
+
+### Rulings (2026-11-17, on the Stage 2 results)
+
+* **R1** – TD-020: direction (b) is final. Exclude `huggingface_models` and
+  `huggingface_spaces` from the semantic duplicate decision and from the ANN index. Basis: the 3
+  stored model duplicates are variants; 0 cross-source pairs ≥ 0.92 involve an excluded source;
+  real duplicates are at 1.0000 with the nearest non-duplicate at 0.803. Delivered in Stage 3 with
+  SDS amendment §5.7.1, whose text the user approves verbatim before it is applied.
+* **R2** – embed-stage order: a deterministic secondary order (id ascending) among RANKED items
+  with equal `collected_at`, in Stage 3. Where it sits, and whether it needs a D-record or an
+  amendment, is proposed in the Stage 3 PRE-CODE.
+* **R3** – TD-023 (b): the cap at generation selection is final; the amendment closing §9.2's
+  deferral is delivered in Stage 4. The tie-break order stays as ruled.
+* **R4** – the backlog consequence of the cap is recorded as TD-024 (Phase 7); no action.
