@@ -1215,3 +1215,73 @@ recorded as planned, deferred or dropped. `tools/review_pool.py` writes no such 
 
 Note: `tools/review_pool.py` prints that it wrote `enriched_pool.csv`, but it writes only
 `enriched_pool.html`; no code change before the vize.
+
+## Stage 3b – Human-relevance evaluation (2026-11-17 to 2026-11-18)
+
+### Rulings (2026-11-17, on the evaluation PRE-CODE)
+
+* **E1** – a local HTML form that saves `ratings.csv`.
+* **E2** – ENRICHED ranks 51–179 split into two equal halves (middle, bottom).
+* **E3** – FILTERED breakdowns recomputed with the application's Scorer, accepted only if every
+  stored score is reproduced; otherwise an ENRICHED-only comparison, stated in the report.
+* **E4** – questions, buttons and progress text in Turkish, in the ruled wording; item texts
+  unchanged.
+* **E5** – the Stage 2 snapshot (7a7d6541…5103) reused.
+* **E6** – Stage 3b, tools only, before Stage 4.
+
+### Delivered
+
+* `tools/evaluate_relevance.py` (SHA-256 b69cf04f…9f4d), read-only, with `sheet` and `analyze`.
+  The form shows only row number, type, title and text (URLs replaced by "[link]"); K1–K4
+  appear only after G; a content-security policy blocks network access. The key holds row →
+  item id, seed, snapshot hash and sheet id.
+* Outside the repository: `check_evaluate_relevance.py` (63/63 PASS, B1–B13 caught),
+  `check_evaluate_form.py` (headless Chromium, PASS, B14–B16 caught) and a command sheet.
+  On the user's machine: check script PASS; 765 passed, ruff clean, 71 files formatted.
+
+### Evaluation (2026-11-17)
+
+One rater scored all 40 items blind (seed 20261117; strata 50 / 64 / 65 / 63). The analysis is
+kept byte-for-byte as `project_log/evaluations/2026-11-17-relevance-b11.txt`. The snapshot was
+unchanged, and the recomputation reproduced all 250 stored scores, so K1–K4 were compared on all
+40 items.
+
+* G against `importance_score`: rho +0.752 [+0.59 … +0.85] (all 40); +0.677 [+0.45 … +0.83]
+  (ENRICHED 30).
+* Mean G by stratum: top 4.60, middle 3.40, bottom 1.70, filtered 1.10. Top 50: 9 of 10 with
+  G ≥ 4 (Wilson 60%–98%). FILTERED: 0 of 10 with G ≥ 4.
+* Mean G by source: huggingface_papers 4.86 (n 7), arxiv 4.50 (n 8), github_trending 2.22
+  (n 9), huggingface_spaces 1.18 (n 11), huggingface_models 1.00 (n 5).
+* Criteria against signals (n 40): engagement +0.064 with G, +0.068 with K2; authority +0.816
+  with G; recency +0.680 with G; topic +0.563 with G, +0.588 with K1.
+* Text: 16 items were shown without any text, all rated K3 = 1; K3 against text length +0.823.
+
+### Reading (reviewer, 2026-11-18; indications, one rater, n = 40)
+
+* The evaluation measures agreement with one informed rater's judgement on the shown text, not
+  ground truth. The rater's K2 (novelty) reflects his own knowledge of the field.
+* Overall agreement is strong: rho(G, score) +0.75 [+0.59 … +0.85]; mean G by stratum 4.6 / 3.4 /
+  1.7 / 1.1; top 50: 9/10 with G ≥ 4; FILTERED: 0/10 with G ≥ 4 (no interesting item dropped).
+* The agreement is driven mostly by source type: mean G hf_papers 4.86, arxiv 4.50, github 2.22,
+  hf_models 1.00, hf_spaces 1.18 (the authority column's +0.82 is a source proxy; recency is
+  confounded with source through TD-018).
+* Engagement (weight 0.35, the largest) shows almost no relation to human interest:
+  G–engagement +0.06, K2–engagement +0.07. Recorded as TD-026.
+* Text availability: 16 items had no text; K3 = 1.00 for all of them; K3–text length +0.82.
+  Generation from a repository id alone is unlikely to be useful.
+* Novelty against K2, split by text availability (`k2_novelty_by_text.py`, outside the
+  repository, SHA-256 c978416d33337c6883bdabe8c35bcaa3c34eca7d0b1b1a2ec79b48774cbd9317; run on
+  the same snapshot, unchanged):
+  * all ENRICHED: n = 30, rho −0.347 [−0.63 … −0.02];
+  * shown with text: n = 24, rho −0.575 [−0.72 … −0.27];
+  * title only: n = 6, rho +0.655, too small to conclude anything.
+
+  The objection that title-only items distorted the result was tested and is not supported:
+  among items shown with text the negative relation is stronger and its interval excludes 0. The
+  other caveat stands: K2 reflects the rater's own knowledge of the field, not ground truth.
+  Recorded as an observation only; no TD and no calibration action. Novelty is written by the
+  embedding stage and read by no ranking, filtering or selection step (AD-19).
+* For a future evaluation round: add a "cannot judge" option, so that missing information is not
+  recorded as a low score.
+
+TD-025 → Removed Debt. TD-026 recorded. TD-022 gains the github_trending figure.

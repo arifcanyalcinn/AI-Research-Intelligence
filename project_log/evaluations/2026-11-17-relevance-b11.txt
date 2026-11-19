@@ -1,0 +1,63 @@
+Copy: C:\Users\ASUS\arip-snapshots\batch11-stage2\pool.db
+SHA-256 before: 7a7d654152400577ad62cd4bd85d1e386174bc038250398eb759d27678dd5103
+
+HUMAN-RELEVANCE EVALUATION (TD-025) — one rater, measured, nothing is decided here
+  Sheet d085ec5804f5542f; seed 20261117; 40 items, 10 per stratum
+  Stratum sizes in the pool: top 50, middle 64, bottom 65, filtered 63 (top = first 50 ENRICHED, ruled order)
+
+1. G against importance_score (Spearman, tie-averaged ranks; bootstrap 95% interval)
+     all 40 items:      rho +0.752  [+0.59 … +0.85]
+     ENRICHED 30 only:   rho +0.677  [+0.45 … +0.83]
+     The sample is stratified (10 per stratum), so rho describes these items, not the pool.
+
+2. G per stratum
+     stratum     n  mean G   G>=4  Wilson 95%
+     top        10    4.60   9/10  60%–98%
+     middle     10    3.40   5/10  24%–76%
+     bottom     10    1.70   2/10  6%–51%
+     filtered   10    1.10   0/10  0%–28%
+
+3. Top 50: 9 of 10 sampled items rated G >= 4 (Wilson 95% 60%–98%)
+
+4. FILTERED items rated G >= 4 (the ranking dropped them)
+     none
+
+5. Ranking signals for the comparison
+     recomputed with the application's Scorer: reproduces all 250 stored scores
+     K1–K4 are compared with the signals on all sampled items.
+
+6. Spearman rho, criteria against signals (n = 40)
+              recency   authority  engagement       topic
+     G         +0.680      +0.816      +0.064      +0.563
+     K1        +0.668      +0.791      -0.003      +0.588
+     K2        +0.723      +0.875      +0.068      +0.544
+     K3        +0.684      +0.826      +0.053      +0.485
+     K4        +0.649      +0.787      +0.103      +0.572
+     distinct signal values: recency 8  authority 5  engagement 24  topic 4
+     Pairs that carry a meaning: K1–topic, K2–engagement. Authority is constant per
+     source, and engagement is one declared value for every arxiv item, so those
+     columns are heavily tied. K3 and K4 have no stored counterpart.
+
+7. Criteria without a stored signal
+     K2 against novelty (ENRICHED only, n = 30): rho -0.347
+     K3 against the length of the shown text (n = 40): rho +0.823
+     items shown without any text: 16, mean K3 1.00
+
+8. Per source
+     source                 n  mean G   G>=4  Wilson 95%
+     arxiv                  8    4.50   7/8   53%–98%
+     github_trending        9    2.22   2/9   6%–55%
+     huggingface_models     5    1.00   0/5   0%–43%
+     huggingface_papers     7    4.86   7/7   65%–100%
+     huggingface_spaces    11    1.18   0/11  0%–26%
+
+9. Caveats
+     - One rater, 40 items. With n = 40 the 95% interval of a Spearman rho is about
+       +-0.3 wide on each side; with 10 per stratum, a share's interval spans tens of
+       percentage points (section 2). These are indications, not estimates.
+     - The sample is stratified, not proportional; pool-wide figures cannot be read
+       off it without weighting.
+     - Ratings were blind to score, source, dates and URLs; the rater still saw the
+       item type and text, which are also inputs to the ranking.
+
+SHA-256 after:  7a7d654152400577ad62cd4bd85d1e386174bc038250398eb759d27678dd5103  (unchanged)
