@@ -1459,3 +1459,49 @@ raises `LLMError`.
   the model was released on exit.
 
 The GPU run (`check_llm_backend.py`) and the Stage 5 closure follow after review.
+
+### First GPU run (user's machine, 2026-11-19, before commit)
+
+* `check_llm_backend.py` sections 1–2 passed; section 3 failed at the release check:
+  `tests/integration/test_llm_gpu.py:93`, "1510.2 MiB still allocated after unloading".
+* Reviewer diagnostic (arip-llm, offline): the backend alone, with no module references held by
+  the caller, left 8.1 MiB after unloading (`allocated_delta`, the cuBLAS workspace); with the
+  test's `layers` list kept alive past the `with` block, 1500.3 MiB; after deleting that list,
+  `gc.collect()` and `empty_cache()`, 0.0 MiB above the start. First load 7.2 s; a second (warm)
+  load 3.8 s.
+* Cause: the test held references to the Linear4bit modules, and so their 4-bit weights, past
+  `__exit__`. The backend was correct.
+* Fix (stage5b): the helper `four_bit_layers()` returns plain values only (the layer count and
+  the set of quant_type strings), with a comment saying why it must not return modules. Every
+  assertion and the 16 MiB tolerance unchanged; `test_llm_gpu.py` 4e88b09a…f55c. Backend code
+  unchanged.
+* `arip\backends\llm` already existed on the user's machine as an empty directory, untracked by
+  git. Harmless.
+
+### Verification (user's machine, 2026-11-19)
+
+* Pre-hashes and manifest hashes matched for Stage 5 and stage5b. Committed as 2fca71d (Stage 5
+  with the stage5b test fix) and pushed.
+* `.venv`: 829 passed, 1 skipped; `ruff check .` clean; 78 files already formatted;
+  `check-config` shows "LLM model : Qwen/Qwen2.5-3B-Instruct".
+* arip-llm: 829 passed, 1 skipped; earlier in the same session, before stage5b, `ruff check .`
+  clean, 78 files formatted, `check-config` showing the 3B model.
+* `check_llm_backend.py` after stage5b: RESULT: PASS.
+  * Environment: RTX 4070 Laptop, 8188 MiB; torch 2.14.1+cu126, transformers 5.20.2,
+    bitsandbytes 0.50.2.
+  * Snapshot aa8e72537993ba99e69dfaafa59ed015b17504d1 (recorded per Q13). The chat template
+    inserts Qwen's default system message. eos `<|im_end|>` 151645, pad `<|endoftext|>` 151643;
+    `max_position_embeddings` 32768.
+  * `llm_loaded`: allocated 2095.9 MiB, reserved 2154.0 MiB, footprint 1917.0 MiB, load 7.0 s;
+    `eos_token_ids` [151643, 151645]; `dropped_generation_defaults` {do_sample True,
+    temperature 0.7, top_p 0.8, top_k 20, repetition_penalty 1.05}.
+  * `llm_unloaded`: `allocated_delta` 8.1 MiB, reserved 44.0 MiB.
+  * GPU integration test: 1 passed in 12.17 s.
+
+### Closure (ruled 2026-11-19)
+
+* (1) A stop string matched anywhere in the decoded text: accepted.
+* (2) A generation that ends with no eos, no stop string and no `max_new_tokens` raises
+  `LLMError`: accepted.
+* (3) The one-time greedy-mode notice that `top_k` is ignored: harmless, accepted.
+* All three are already stated in D-011 as delivered; no DECISIONS or TECHNICAL_DEBT change.
