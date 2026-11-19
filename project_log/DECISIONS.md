@@ -227,6 +227,16 @@ TD-019 fallback chain applies, each step by its own ruling. The model card
 licence is `qwen-research`; recorded, not ruled. The config/settings.yaml
 value is changed in Stage 5, together with the backend that reads it.
 
+Ruling A15 (Batch 11, Stage 5): compute dtype bfloat16 (30.8 against 29.4
+tok/s for float16 in the Stage 1 check, a gap under the 10% threshold), no
+double quantization (a peak of 2134.8 MiB plus a desktop baseline of about
+0.7 GB leaves more than 5 GB of 8188 MiB free), and the non-quantized weights
+in bfloat16. Module constants in `arip/backends/llm/transformers_backend.py`,
+reported by `get_model_info()`; no configuration fields, so no amendment.
+
+AD-06's rationale cites 12 GB VRAM; the target has 8 GB (8188 MiB). The rule
+is unchanged and applies with more force; §9.1 is not altered (ruling Q1).
+
 Introduced in Batch 11.
 
 ---
@@ -300,3 +310,105 @@ sorts last on that key. The method has no runtime caller before Stage 8.
 Pinned by the `test_selection_order_*` tests in `tests/unit/test_repositories.py`.
 
 Introduced in Batch 11, Stage 4.
+
+---
+
+## D-011
+
+`TransformersBackend.generate()` (SDS §5.9) receives the Jinja2 output and
+wraps it as exactly one user message with the tokenizer's chat template
+(`add_generation_prompt=True`), keeping the tokenizer's default system message
+unmodified. `generated_content.full_prompt` stores the Jinja2 output, not the
+wrapped string. Each call uses a fully specified `GenerationConfig` built only
+from `GenerationParams`, with top-k disabled (`top_k=0`); `temperature <= 0`
+means greedy decoding. `stop_reason` is decided in the order eos,
+stop_sequence, max_tokens, and a matched stop string stays in `text`. A set
+seed is applied with `transformers.set_seed()` before the call.
+
+### Reason
+
+- A8: the templates stay model-independent, and `StubLLM` tests see no chat
+  markers. §4.3 and §5.8 call `full_prompt` the "rendered prompt"; this reads
+  that as the template output. Qwen2.5-Instruct's chat template inserts "You
+  are Qwen, created by Alibaba Cloud. You are a helpful assistant." when no
+  system message is given; an explicit system text is prompt design (Stage 6).
+- Q3: transformers 5.20.2 fills every generation value left `None` from the
+  checkpoint's `generation_config.json` (Qwen ships sampling defaults such as
+  `top_k` 20). Those values would otherwise apply silently, and a greedy call
+  would sample. The backend therefore replaces the model's generation config
+  at load with one holding only its token ids, logs the dropped values
+  (`dropped_generation_defaults` in `llm_loaded`), and sets every sampling
+  value on each call. This also drops the model's own `repetition_penalty` in
+  favour of `GenerationParams.repetition_penalty` (1.1). If Stage 9 output
+  shows repetition, that is a calibration question for later; no action now.
+- Q4: `temperature <= 0` sets `do_sample=False` and the neutral temperature and
+  top_p of 1.0. transformers then logs once that `top_k` is ignored in greedy
+  mode; top-k has no effect there.
+- Q5: eos first, as the model's own end. A stop string counts when it appears
+  anywhere in the decoded text: transformers stops at the token that completes
+  it, and that token may run past the string's end. Keeping the string keeps
+  `raw_output` literal; the Stage 7 parser handles it. A generation that ends
+  with none of the three raises `LLMError`.
+- Q6: `set_seed()`, as verified in Stage 1. It also seeds Python's `random`
+  and numpy globally, as well as torch on every device.
+
+### Rejected Alternatives
+
+- Chat markers in the `.j2` templates (A8 option ii): ties every template to
+  one model family.
+- Storing the wrapped string (A8 option iii): needs a new field or method,
+  that is, a §5.9 amendment.
+- Letting the checkpoint's defaults fill the gaps (Q3 option a).
+- Rejecting `temperature <= 0`, or passing it through (Q4 options b and c).
+- Seeding torch only (Q6 option b).
+
+### Scope
+
+Backend only. The template text, any system message, and range validation of
+the generation settings belong to Stage 6 (§5.15 amendment); what the caller
+does with an `LLMError` is ruling A18 (Stage 7). §5.9 states none of these, so
+no amendment is needed. Pinned by `tests/unit/backends/test_llm.py`.
+
+Introduced in Batch 11, Stage 5.
+
+---
+
+## D-012
+
+The real LLM backend is integration-tested against the production model named
+in `config/settings.yaml` (`Qwen/Qwen2.5-3B-Instruct`, D-008), loaded from the
+local Hugging Face cache, by `tests/integration/test_llm_gpu.py`. The test is
+marked `gpu` and runs only with `--run-gpu` (`tests/conftest.py`). It skips
+unless torch, transformers and bitsandbytes import, CUDA is available,
+`HF_HUB_OFFLINE=1` is set before the run, and the model is cached.
+
+### Reason
+
+SDS §5.9: "The real backend is integration-tested separately against a small
+model (~1B parameters)." The 3B model was downloaded in Stage 1, so the test
+needs no new download and exercises the exact shipped configuration. The
+default gate stays GPU-free, as the Phase 4 gate requires ("`StubLLM` tests
+pass independently of any GPU"); because the test is opt-in, a CUDA venv does
+not load the model on every test run either.
+
+### Rejected Alternatives
+
+- Qwen2.5-0.5B- or 1.5B-Instruct: closer to "~1B", but a new download and not
+  the shipped model.
+- A tiny random Qwen2 model built by the test: no download, but not verified
+  on Windows with CUDA.
+- A `-m "not gpu"` default in `addopts`, or an environment variable (Q8
+  options b and c); skip conditions alone (option d) would run the test in the
+  default gate in arip-llm.
+
+### Scope
+
+Departs from the letter of §5.9 ("~1B"). The test asserts a 4-bit NF4 load,
+non-empty output, `stop_reason == "max_tokens"` at `max_new_tokens=8`,
+`is_loaded` false after exit, and `torch.cuda.memory_allocated()` after exit at
+most 16 MiB above the value before loading (Stage 1 measured an 8.1 MiB
+residue, the cuBLAS workspace; reserved memory is not required to be zero).
+Outside the default gate, so no mutations. The default suite gains one skipped
+test in every environment.
+
+Introduced in Batch 11, Stage 5.

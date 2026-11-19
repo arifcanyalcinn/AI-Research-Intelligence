@@ -1390,3 +1390,72 @@ The Stage 4 closure (TD-023 to Removed Debt, TD-024 wording) follows after revie
 * TD-003: under §9.2.1, `huggingface_models` and `huggingface_spaces` items are ineligible while
   their abstract is NULL, so resolving TD-003 is their only path into generation (24 + 16 ENRICHED
   on the Stage 2 snapshot, 0 eligible).
+
+## Stage 5 – LLM backend (2026-11-19)
+
+### Rulings (2026-11-19, on the Stage 5 PRE-CODE)
+
+All recommendations accepted.
+
+* Backend: `device_map={"": 0}`, no CPU fallback and no offload (AD-06); NF4, compute dtype
+  bfloat16, no double quantization, `dtype` bfloat16; OOM in `__enter__` converted to §5.9's
+  `LLMError` message after cleanup; other load failures converted to `LLMError`, chained;
+  `__exit__` unloads in `finally`, never swallows the body's exception, and logs memory before
+  load and after unload.
+* A8 option (i); A15 as proposed; A16 needs no ruling; A17 option (iii); A20 as proposed.
+* Q1 (a) – one sentence in D-008. Q2 (a) – keep Qwen's default system message. Q3 (b) – a fully
+  specified generation config from `GenerationParams` only, top-k disabled. Q4 (a) –
+  `temperature <= 0` is greedy. Q5 – order eos, stop_sequence, max_tokens; the stop string is
+  kept in `text`. Q6 (a) – `transformers.set_seed()`. Q7 (a) – a first load may download.
+  Q8 (a) – `--run-gpu`. Q9 – the extended `get_model_info()` keys. Q10 (a) – a residue is logged,
+  not raised. Q11 – `.env.example`'s comment and the `config.py` docstring change; the temporary
+  YAML in `test_config.py` stays; `.env` is never read or touched. Q12 – A15 and Q1 in D-008,
+  D-011, D-012. Q13 (a) – no revision pin; the snapshot hash is recorded. Q14 (a) – per-call
+  logging belongs to the generator. Q15 – all of it. Q16 (a) – wiring in Stage 8. Q17 –
+  `check_llm_backend.py`.
+* Notes for D-011: the fully specified config also drops the model's `repetition_penalty`; if
+  Stage 9 output shows repetition, that is a calibration question for later. `set_seed()` also
+  seeds Python's `random` and numpy globally.
+
+### Delivered
+
+* `arip/backends/llm/__init__.py`, `registry.py` (`LLMRegistry`, mirroring `EmbeddingRegistry`),
+  `stub_backend.py` (`StubLLM`), `transformers_backend.py` (`TransformersBackend`). torch and
+  transformers are imported only inside `_load_runtime()`.
+* `config/settings.yaml` – `llm.model_name: "Qwen/Qwen2.5-3B-Instruct"` (D-008), comment updated.
+  `arip/config.py` – the `LLMSettings` docstring names D-008's model. `.env.example` – the
+  commented example names the 3B model.
+* `tests/conftest.py` – the `gpu` marker and `--run-gpu`. `tests/unit/backends/test_llm.py` –
+  42 tests against a fake torch/transformers runtime. `tests/integration/test_llm_gpu.py` – the
+  opt-in GPU test (D-012).
+* `project_log/DECISIONS.md` – A15 and Q1 lines in D-008; D-011; D-012.
+
+Not in Stage 5: prompts, the validator and the §5.15 amendment (Stage 6); the generator and the
+caller's `LLMError` policy (Stage 7); wiring into the container and `check-config` (Stage 8). No
+SDS text changed.
+
+Two implementation details, raised for review: a stop string is detected anywhere in the
+decoded text rather than only at its end (transformers' stop-string match may run past the
+string's end); and a generation that ends with neither eos, a stop string nor `max_new_tokens`
+raises `LLMError`.
+
+### Verification (before delivery)
+
+* `stage5_verify.py` (outside the repository): existing test files unchanged; SDS, `data/`,
+  `.env` untouched; full suite 829 passed, 1 skipped (CUDA torch, transformers 5.20.2,
+  bitsandbytes present, no GPU), also with bitsandbytes blocked; 747 passed, 4 skipped without
+  the `embedding` and `llm` extras. `ruff check` clean; 78 files formatted.
+* Mutations M1–M38, full suite each; the failing set equalled the predicted set every time.
+  The first run caught M31 (a model reference kept) only through the empty_cache-order tests:
+  `test_exit_releases_every_model_reference` used an unnamed backend, which was freed together
+  with the kept reference. The test now holds the backend in a variable, and the whole
+  verification was run again.
+* A smoke run outside the repository against real transformers 5.20.2 and bitsandbytes 0.50.2
+  on CPU (a tiny random Qwen2 model, the device map patched to the CPU): the model loaded with
+  NF4 Linear4bit layers, bfloat16 compute and no double quantization; the checkpoint's sampling
+  defaults were dropped at load; transformers' effective config was do_sample True, temperature
+  0.7, top_p 0.95, top_k 0, repetition_penalty 1.1 (sampling) and do_sample False, 1.0, 1.0
+  (greedy); the same seed reproduced; eos, stop_sequence and max_tokens were each reported;
+  the model was released on exit.
+
+The GPU run (`check_llm_backend.py`) and the Stage 5 closure follow after review.

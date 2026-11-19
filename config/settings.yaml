@@ -49,8 +49,8 @@ dedup:
 llm:
   backend: "transformers"
   # model_name is REQUIRED — set it here or via ARIP_LLM__MODEL_NAME env var.
-  # Recommended: Qwen/Qwen2.5-7B-Instruct (4-bit quantized, ~4.5 GB VRAM)
-  model_name: "Qwen/Qwen2.5-7B-Instruct"
+  # D-008: Qwen/Qwen2.5-3B-Instruct, bitsandbytes 4-bit NF4 (~2.1 GB VRAM, measured Batch 11 Stage 1)
+  model_name: "Qwen/Qwen2.5-3B-Instruct"
   generation:
     temperature: 0.7
     max_new_tokens: 1024

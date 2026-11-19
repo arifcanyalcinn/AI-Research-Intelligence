@@ -103,7 +103,8 @@ class LLMSettings(BaseModel):
     model_name has no default -- it must be set in settings.yaml or via
     ARIP_LLM__MODEL_NAME. Startup will fail with ConfigError if absent.
 
-    Recommended: Qwen/Qwen2.5-7B-Instruct (4-bit quantized, ~4.5 GB VRAM)
+    D-008: Qwen/Qwen2.5-3B-Instruct, bitsandbytes 4-bit NF4 (~2.1 GB VRAM,
+    measured in Batch 11 Stage 1 on an 8 GB GPU).
     """
 
     # Suppress pydantic's "model_" namespace warning -- model_name is our
