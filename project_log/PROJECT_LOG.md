@@ -1361,3 +1361,32 @@ Not in Stage 4: cap and eligibility code (Stage 8); the `max_items_per_run` ≥ 
   values, NaN and infinities accepted.
 
 The Stage 4 closure (TD-023 to Removed Debt, TD-024 wording) follows after review.
+
+### Verification (user's machine, 2026-11-19)
+
+* Pre-hashes and manifest hashes matched; 8 files modified, none added.
+* `git diff --numstat`: `docs/frozen_sds.md/frozen_sds.md` 16/0; `arip/db/repositories/items.py`
+  71/9; `collect.py`, `embed.py`, `rank.py` 2/2 each; `project_log/DECISIONS.md` 35/1;
+  `project_log/PROJECT_LOG.md` 77/1; `tests/unit/test_repositories.py` 189/2.
+* In both venvs (`sys.prefix` confirmed): 787 passed; `ruff check .` "All checks passed!";
+  `ruff format --check .` 71 files already formatted; `check-config` valid (it still shows
+  `Qwen/Qwen2.5-7B-Instruct` until Stage 5).
+* Committed as 5d8a7d5 and pushed.
+* The reviewer verified that the inserted SDS block equals `approved_9_2_1.txt` byte for byte,
+  with CRLF line endings, inserted once at the agreed point, and read the sort code, the 22 tests
+  and the M1–M21 output.
+* New SDS SHA-256: 35271503b6f56f009ace64772e06d7853fb52f99c1339165093606c30cca24c1.
+
+### Closure (ruled 2026-11-19)
+
+* TD-023 is not moved to Removed Debt. Its row records (a) resolved by D-010 and (b) decided by
+  §9.2.1, with the enforcement code pending in Stage 8 (GenerateStage); the row is removed at the
+  Stage 8 closure. The measured history is kept.
+* TD-024: ineligible items also stay ENRICHED until TD-003 is resolved; the eligibility-based
+  figure (135 eligible, 3 runs at cap 50, 44 ineligible) replaces "four passes", which is kept as
+  history ("four passes (all 179, before eligibility)").
+* Ruled on the first closure draft (not applied): the 4 `github_trending` items with an empty
+  description are not covered by TD-003; they stay ENRICHED under TD-024 only. TD-024 says so.
+* TD-003: under §9.2.1, `huggingface_models` and `huggingface_spaces` items are ineligible while
+  their abstract is NULL, so resolving TD-003 is their only path into generation (24 + 16 ENRICHED
+  on the Stage 2 snapshot, 0 eligible).
