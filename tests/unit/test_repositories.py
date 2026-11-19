@@ -10,14 +10,16 @@ against :memory: SQLite. This file covers all 8 methods.
 
 from __future__ import annotations
 
+import json
 import uuid
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from arip.db.database import init_db
+from arip.db.models import Item
 from arip.db.repositories.items import ItemRepository
 from arip.enums import ItemStatus
 
@@ -247,6 +249,191 @@ def test_get_by_status_and_language_filters_correctly(
     tr_ranked = repo.get_by_status_and_language(ItemStatus.RANKED, "TR")
     assert len(tr_ranked) == 1
     assert tr_ranked[0].language == "TR"
+
+
+# ---------------------------------------------------------------------------
+# get_by_status_and_language() — selection order (D-010, TD-023 a)
+#
+# Every test inserts its items so that id order is the WRONG answer, so the
+# key under test is what puts them right. The id test itself reverses the
+# order SQLite returns rows in, because the query has no ORDER BY.
+# ---------------------------------------------------------------------------
+
+
+def add_selectable(
+    repo: ItemRepository,
+    *,
+    score: float | None = 0.6,
+    engagement: float | None = 0.5,
+    topic: float | None = 0.5,
+    published: date | None = date(2026, 10, 1),
+    breakdown: str | None = None,
+) -> int:
+    """One ENRICHED EN item; ``breakdown`` overrides the JSON built from the signals."""
+    if breakdown is None:
+        signals = {"recency": 0.5, "authority": 0.5}
+        if engagement is not None:
+            signals["engagement"] = engagement
+        if topic is not None:
+            signals["topic"] = topic
+        breakdown = json.dumps(signals)
+    data = make_item_data(status=ItemStatus.ENRICHED)
+    data.update(importance_score=score, signal_breakdown=breakdown, published_date=published)
+    return repo.create(data).id
+
+
+def selection_ids(repo: ItemRepository) -> list[int]:
+    return [i.id for i in repo.get_by_status_and_language(ItemStatus.ENRICHED, "EN")]
+
+
+def test_selection_order_puts_the_higher_score_first(repo: ItemRepository) -> None:
+    """Catches: score ascending; score key dropped."""
+    low = add_selectable(repo, score=0.5)
+    high = add_selectable(repo, score=0.9)
+    mid = add_selectable(repo, score=0.7)
+    assert selection_ids(repo) == [high, mid, low]
+
+
+def test_selection_order_breaks_score_ties_by_higher_engagement(repo: ItemRepository) -> None:
+    """Catches: engagement key dropped; engagement ascending."""
+    low = add_selectable(repo, engagement=0.2)
+    high = add_selectable(repo, engagement=0.8)
+    assert selection_ids(repo) == [high, low]
+
+
+def test_selection_order_ranks_score_before_engagement(repo: ItemRepository) -> None:
+    """Catches: engagement compared before score."""
+    second = add_selectable(repo, score=0.8, engagement=0.9)
+    first = add_selectable(repo, score=0.9, engagement=0.1)
+    assert selection_ids(repo) == [first, second]
+
+
+def test_selection_order_breaks_engagement_ties_by_higher_topic(repo: ItemRepository) -> None:
+    """Catches: topic key dropped; topic ascending."""
+    low = add_selectable(repo, topic=0.1)
+    high = add_selectable(repo, topic=0.9)
+    assert selection_ids(repo) == [high, low]
+
+
+def test_selection_order_ranks_engagement_before_topic(repo: ItemRepository) -> None:
+    """Catches: topic compared before engagement."""
+    second = add_selectable(repo, engagement=0.2, topic=0.9)
+    first = add_selectable(repo, engagement=0.8, topic=0.1)
+    assert selection_ids(repo) == [first, second]
+
+
+def test_selection_order_breaks_topic_ties_by_newer_published_date(repo: ItemRepository) -> None:
+    """Catches: published_date key dropped; published_date ascending (oldest first)."""
+    older = add_selectable(repo, published=date(2026, 10, 1))
+    newer = add_selectable(repo, published=date(2026, 10, 5))
+    assert selection_ids(repo) == [newer, older]
+
+
+def test_selection_order_ranks_topic_before_published_date(repo: ItemRepository) -> None:
+    """Catches: published_date compared before topic."""
+    second = add_selectable(repo, topic=0.1, published=date(2026, 10, 9))
+    first = add_selectable(repo, topic=0.9, published=date(2026, 10, 1))
+    assert selection_ids(repo) == [first, second]
+
+
+def test_selection_order_breaks_full_ties_by_id_ascending(
+    repo: ItemRepository, db_session: Session
+) -> None:
+    """Catches: id key dropped; id descending.
+
+    The query has no ORDER BY, so SQLite would hand rows back in id order and
+    hide a missing id key. ``reverse_unordered_selects`` makes it return them in
+    reverse, so only the key can restore id order.
+    """
+    ids = [add_selectable(repo) for _ in range(3)]
+    db_session.execute(text("PRAGMA reverse_unordered_selects = ON"))
+    raw = db_session.execute(
+        select(Item.id).where(Item.status == "ENRICHED", Item.language == "EN")
+    ).scalars()
+    assert list(raw) == ids[::-1]  # the pragma took effect
+    assert selection_ids(repo) == ids
+
+
+def test_selection_order_puts_a_missing_score_last(repo: ItemRepository) -> None:
+    """Catches: missing values first; a missing score treated as 0.0."""
+    missing = add_selectable(repo, score=None, engagement=0.9)
+    zero = add_selectable(repo, score=0.0, engagement=0.1)
+    assert selection_ids(repo) == [zero, missing]
+
+
+def test_selection_order_puts_a_missing_engagement_last(repo: ItemRepository) -> None:
+    """Catches: missing values first; a missing signal treated as 0.0."""
+    missing = add_selectable(repo, engagement=None, topic=0.9)
+    zero = add_selectable(repo, engagement=0.0, topic=0.1)
+    assert selection_ids(repo) == [zero, missing]
+
+
+def test_selection_order_puts_a_missing_topic_last(repo: ItemRepository) -> None:
+    """Catches: missing values first; a missing signal treated as 0.0."""
+    missing = add_selectable(repo, topic=None, published=date(2026, 10, 9))
+    zero = add_selectable(repo, topic=0.0, published=date(2026, 10, 1))
+    assert selection_ids(repo) == [zero, missing]
+
+
+def test_selection_order_puts_a_missing_published_date_last(repo: ItemRepository) -> None:
+    """Catches: missing values first."""
+    missing = add_selectable(repo, published=None)
+    old = add_selectable(repo, published=date(2020, 1, 1))
+    assert selection_ids(repo) == [old, missing]
+
+
+@pytest.mark.parametrize(
+    "breakdown",
+    [
+        "{not json",
+        "[0.9, 0.9]",
+        "null",
+        '"engagement"',
+        '{"engagement": "0.9", "topic": "0.9"}',
+        '{"engagement": true, "topic": true}',
+        '{"engagement": NaN, "topic": NaN}',
+        '{"engagement": Infinity, "topic": Infinity}',
+        "",
+    ],
+    ids=[
+        "malformed",
+        "array",
+        "null",
+        "string",
+        "numeric_strings",
+        "booleans",
+        "nan",
+        "infinity",
+        "empty",
+    ],
+)
+def test_selection_order_treats_an_unusable_breakdown_as_missing(
+    repo: ItemRepository, breakdown: str
+) -> None:
+    """Catches: JSON errors not caught; non-objects accepted; booleans accepted;
+    NaN or infinities accepted as values.
+
+    The unusable item is inserted first and has the newer date, so if its
+    breakdown were read as high signals, or ignored in favour of the date, it
+    would come first. It must come after the item with real signals, and the
+    query must not raise.
+    """
+    unusable = add_selectable(repo, breakdown=breakdown, published=date(2026, 10, 9))
+    valid = add_selectable(repo, engagement=0.1, topic=0.1, published=date(2026, 10, 1))
+    assert selection_ids(repo) == [valid, unusable]
+
+
+def test_selection_order_applies_every_key_together(repo: ItemRepository) -> None:
+    """The full D-010 order on one mixed set, read top to bottom."""
+    e = add_selectable(repo, score=0.6, engagement=0.5, topic=0.5, published=date(2026, 10, 1))
+    g = add_selectable(repo, score=None)
+    c = add_selectable(repo, score=0.6, engagement=0.5, topic=0.9)
+    a = add_selectable(repo, score=0.9)
+    f = add_selectable(repo, score=0.6, engagement=None)
+    b = add_selectable(repo, score=0.6, engagement=0.8)
+    d = add_selectable(repo, score=0.6, engagement=0.5, topic=0.5, published=date(2026, 10, 5))
+    e2 = add_selectable(repo, score=0.6, engagement=0.5, topic=0.5, published=date(2026, 10, 1))
+    assert selection_ids(repo) == [a, b, c, d, e, e2, f, g]
 
 
 # ---------------------------------------------------------------------------

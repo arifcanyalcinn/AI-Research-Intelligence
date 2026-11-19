@@ -10,8 +10,8 @@ Scope boundaries, per SDS §8.2:
 
   - Items are left in ``COLLECTED``. The transition to RANKED or FILTERED
     belongs to the ranking stage, which is a later batch.
-  - ``pipeline.max_items_per_run`` is NOT applied here. Its enforcement point
-    is deferred to Phase 3 (SDS §9.2).
+  - ``pipeline.max_items_per_run`` is NOT applied here. It is applied when the
+    generation stage selects items (SDS §9.2.1).
 
 Failure policy (SDS §8.3.2):
 

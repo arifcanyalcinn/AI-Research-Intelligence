@@ -18,8 +18,8 @@ items collected on an earlier run that have not yet been ranked.
 
 What this stage does not do:
 
-  - It applies no item cap. ``pipeline.max_items_per_run`` has no defined
-    enforcement point and is deferred to Phase 3 (§9.2).
+  - It applies no item cap. ``pipeline.max_items_per_run`` is applied when the
+    generation stage selects items (§9.2.1).
   - It writes no ``filtered_reason``. That column does not exist, and §3.5
     narrows the ``COLLECTED -> FILTERED`` action to ``importance_score`` alone.
   - It computes nothing itself. All arithmetic lives in ``Scorer``; this stage

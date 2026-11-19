@@ -1285,3 +1285,79 @@ unchanged, and the recomputation reproduced all 250 stored scores, so K1–K4 we
   recorded as a low score.
 
 TD-025 → Removed Debt. TD-026 recorded. TD-022 gains the github_trending figure.
+
+## Stage 4 – TD-023: selection order and the cap's enforcement point (2026-11-18 to 2026-11-19)
+
+### Rulings (2026-11-18 and 2026-11-19, on the Stage 4 PRE-CODE)
+
+* **D-010** – accepted as drafted: a Python sort after the query; `json_extract` rejected; no
+  amendment. Approved log wording: `ItemRepository.get_by_status_and_language()` orders by
+  `importance_score`, then the `engagement` and `topic` values of `signal_breakdown`, then
+  `published_date`, all descending with missing values last, then `id` ascending. The sort runs in
+  Python after the query; `json_extract` was rejected (SQLite-only, and malformed JSON fails the
+  whole query). No amendment: §5.14 states no order. Basis: on the Batch 10 pool, 60 of 179
+  ENRICHED items tie on score in 9 groups; engagement separates 10, topic and date none, and id the
+  remaining 50, including a 16-row tie at the second cutoff (Stage 2 measurement). The reviewer
+  checked these figures against the Stage 2 Results section.
+* **S1** – the cap is per language.
+* **S2** – the §9.2.1 amendment is written in Stage 4; the enforcement code comes in Stage 8 with
+  GenerateStage.
+* **S3** – option (i): `pipeline.max_items_per_run` < 1 is rejected at configuration load, in the
+  Stage 6 §5.15 amendment. §9.2.1 defines no behaviour for 0.
+* **S4** – the comments in `collect.py`, `rank.py` and `embed.py` cite §9.2.1.
+* **Text availability** – option (ii), eligibility at selection: an ENRICHED item whose `abstract`
+  is NULL or empty after whitespace stripping is not eligible; no length threshold; it is skipped,
+  does not count toward the cap and stays ENRICHED; no new state, no FAILED, no change at
+  collection, ranking, filtering or embedding. Such items remain ENRICHED until TD-003 (model
+  cards) is resolved and fall under TD-024.
+* **Measured basis** – `count_eligible.py` (outside the repository, SHA-256 a409d597…f2dd) on the
+  Stage 2 snapshot (7a7d6541…5103, unchanged): 135 of 179 ENRICHED items eligible; ineligible: 24
+  `huggingface_models`, 16 `huggingface_spaces`, 4 `github_trending` with an empty description;
+  3 runs to drain at cap 50; 1 ineligible item among the first 50 in D-010 order; the first run
+  selects arxiv 15, github_trending 12, huggingface_papers 23.
+* **§9.2.1** – approved verbatim on 2026-11-19. Ruled changes from the draft: the measured values
+  (135, 3, and "4 `github_trending` items with an empty description"); "in D-010 order on their
+  stored score" (D-010 orders on more than the score); and K3 described as "whether a good
+  explanatory piece can be written from the information given", because "explainability" would be
+  read as XAI.
+* **Ambiguities raised in the PRE-CODE:**
+  1. A10: eligibility stays fixed on `abstract`, as §9.2.1 says. If Stage 6 gives the template
+     other fields, they are supplementary input only and do not change eligibility; any change to
+     eligibility needs its own amendment. The Stage 6 PRE-CODE starts from this.
+  2. Whitespace: Python `str.strip()`, the same in the code and in the count.
+  3. Logging skipped items: settled in the Stage 8 PRE-CODE; the default is one count in the
+     stage's completion log.
+  4. TD-024 is updated at the Stage 4 closure: ineligible items also stay ENRICHED until TD-003,
+     and the eligibility-based figure replaces "four passes", which is kept as history.
+
+### Delivered
+
+* `arip/db/repositories/items.py` – `get_by_status_and_language()` returns the query result sorted
+  in Python by D-010's key (module helpers `_breakdown_value`, `_descending_missing_last`,
+  `_selection_order_key`). A breakdown that is missing, unparsable, not an object, or holds a
+  boolean, a non-numeric value, NaN or an infinity counts as missing.
+* `docs/frozen_sds.md/frozen_sds.md` – §9.2.1 inserted after the last §9.2 row, before
+  `## 9.3 Known Technical Debt`; additions only.
+* `arip/pipeline/stages/collect.py`, `rank.py`, `embed.py` – comments cite §9.2.1 (S4).
+* `tests/unit/test_repositories.py` – 22 new test cases (13 functions, one parametrised over 9
+  unusable breakdowns). No existing test depended on the old order:
+  `test_get_by_status_and_language_filters_correctly` checks filtering only, with one item per
+  language.
+* `project_log/DECISIONS.md` – D-010.
+
+Not in Stage 4: cap and eligibility code (Stage 8); the `max_items_per_run` ≥ 1 validation
+(Stage 6); `settings.yaml` (Stage 5).
+
+### Verification (before delivery)
+
+* `stage4_verify.py` (outside the repository): 27/27 PASS. All 27 existing test files unchanged
+  except `test_repositories.py`, whose 22 existing functions are identical by syntax tree. The new
+  SDS equals the old one with exactly the approved text and one blank line inserted.
+* Full suite 787 passed; 705 passed and 3 skipped without the `embedding` extra. `ruff check`
+  clean; 71 files formatted; `check-config` valid.
+* Mutations M1–M21, full suite each; the failing set equalled the predicted set every time: each of
+  the five keys dropped, reversed, or moved before its predecessor; missing values first; a missing
+  score or signal read as 0.0; JSON errors not caught; non-object JSON, booleans, non-numeric
+  values, NaN and infinities accepted.
+
+The Stage 4 closure (TD-023 to Removed Debt, TD-024 wording) follows after review.

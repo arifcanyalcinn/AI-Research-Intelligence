@@ -266,3 +266,37 @@ generated SQL, because SQLite's row order alone cannot tell the two queries
 apart.
 
 Introduced in Batch 11, Stage 3.
+
+---
+
+## D-010
+
+`ItemRepository.get_by_status_and_language()` orders items by `importance_score`,
+then the `engagement` and `topic` values in `signal_breakdown`, then
+`published_date`, each descending with a missing value last, then by `id`
+ascending. The sort runs in Python after the query.
+
+### Reason
+
+TD-023 (a): the order among equal scores was undefined, and the generation
+stage takes its capped selection from this order (SDS §9.2.1). On the Batch 10
+pool, 60 of the 179 ENRICHED items tie on score in 9 groups; engagement
+separates 10 of them, topic and published_date none, and id the remaining 50,
+including a 16-row tie at the second cutoff (Batch 11, Stage 2).
+
+### Rejected Alternatives
+
+- Score only: the order within ties stays undefined.
+- `json_extract()` in SQL: SQLite-only, and one malformed `signal_breakdown`
+  fails the whole query.
+- `published_date` before engagement: it separates nothing on the measured
+  pool, and recency is already part of the score.
+
+### Scope
+
+SDS §5.14 states no ordering, so no amendment is needed. A missing,
+unparsable, non-object or non-numeric breakdown value counts as missing and
+sorts last on that key. The method has no runtime caller before Stage 8.
+Pinned by the `test_selection_order_*` tests in `tests/unit/test_repositories.py`.
+
+Introduced in Batch 11, Stage 4.

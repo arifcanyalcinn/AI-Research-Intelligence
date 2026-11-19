@@ -2101,6 +2101,22 @@ These decisions are frozen. Changing them during implementation requires a writt
 | `pipeline.max_items_per_run` enforcement point | Phase 3 (ranking and filtering) | §5.15 defines the field but the SDS never states whether the cap is per source or per run, nor which stage applies it. Collection does not enforce it. Phase 3 introduces `min_score` filtering, which is where item-count limiting is decided. |
 | Normalization retry policy (§3.3 `COLLECTED → FAILED`) | When normalization replay (§4.7) is implemented | §3.3 says an item with `retry_count < pipeline.max_normalization_retries` is left in COLLECTED for the next run, but retrying requires re-normalizing from the stored payload — the §4.7 replay capability, which no current batch implements. Without replay an item left in COLLECTED is re-fetched and then skipped by the exact-dedup check, so it never progresses. §3.3 also describes the trigger as an "unrecoverable" error, which contradicts retrying at all. CollectStage therefore marks normalization failures FAILED immediately. |
 
+### 9.2.1 — Enforcement Point of `pipeline.max_items_per_run`
+
+**Amends:** the §9.2 row *"`pipeline.max_items_per_run` enforcement point | Phase 3 (ranking and filtering) | …"*. The original row is left in place.
+
+Phase 3 closed without deciding the enforcement point. It is decided here, against the row's expectation that ranking and filtering would decide it: the cap is applied when the generation stage selects items, not at collection, ranking, filtering or embedding.
+
+**Eligibility.** An `ENRICHED` item is eligible for selection only if its source text is not empty. The source text is the `abstract` column (§4.2); it is empty when it is NULL or when nothing remains after leading and trailing whitespace is removed. No minimum length applies. An ineligible item is skipped: it is not selected, does not count against the cap, is not transitioned, and stays `ENRICHED`. Eligibility adds no state and changes nothing at collection, ranking, filtering or embedding.
+
+**Rule.** In each pipeline run, for each language it generates in, the generation stage takes the `ENRICHED` items of that language in the order of `ItemRepository.get_by_status_and_language()` (D-010), skips ineligible items, and selects the first `pipeline.max_items_per_run` eligible items. Every selected item counts against the cap, whether it ends `GENERATED` or `FAILED`. Eligible items beyond the cap are not transitioned: they stay `ENRICHED` and are considered again in the next run, in D-010 order on their stored score.
+
+The cap limits generation work per run, not the size of the pool. `FILTERED` keeps its single cause (§3.5): no item is filtered for exceeding the cap or for lacking source text. Because `importance_score` is fixed when an item is ranked, an item left over from an earlier run competes with new items on its original score. Items that are never selected, eligible ones beyond the cap and ineligible ones alike, are recorded as TD-024 and left to Phase 7. Items of `huggingface_models` and `huggingface_spaces`, whose `abstract` is always NULL (TD-003), are ineligible until TD-003 is resolved.
+
+**Measured basis (Batch 11).** On the Stage 2 snapshot, 135 of the 179 `ENRICHED` items are eligible. The ineligible ones are all 40 `huggingface_models` and `huggingface_spaces` items and 4 `github_trending` items with an empty description. At a cap of 50, with no new items, the eligible items are drained in 3 runs. In the Stage 3b evaluation (one rater, 40 items), all 16 items shown without source text were rated 1 of 5 for K3 (whether a good explanatory piece can be written from the information given).
+
+*No frozen decision in §9.1 is altered by this amendment.*
+
 ## 9.3 Known Technical Debt
 
 Accepted intentionally for v1. Must be tracked and addressed before any public release.

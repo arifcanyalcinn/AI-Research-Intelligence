@@ -67,8 +67,8 @@ What this stage does not do
     divergence §5.7's reconciliation cannot repair — and the commit happens
     when the orchestrator's scope exits, after ``run()`` has returned. ``run()``
     therefore returns the deduplicator for the orchestrator to persist.
-  - It applies no item cap. ``pipeline.max_items_per_run`` still has no defined
-    enforcement point (§9.2).
+  - It applies no item cap. ``pipeline.max_items_per_run`` is applied when the
+    generation stage selects items (§9.2.1).
 """
 
 from __future__ import annotations

@@ -10,6 +10,8 @@ for committing or rolling back. ItemRepository never commits or closes the sessi
 
 from __future__ import annotations
 
+import json
+import math
 import uuid
 from datetime import datetime
 from typing import Any
@@ -159,23 +161,35 @@ class ItemRepository:
         return list(self._session.execute(stmt).scalars().all())
 
     def get_by_status_and_language(self, status: ItemStatus, language: str) -> list[Item]:
-        """Fetch items by status and language, ordered by importance_score descending.
+        """Fetch items by status and language, in the selection order of D-010.
 
-        Used by generation and publishing stages to select items for processing.
+        Used by generation and publishing stages to select items for processing;
+        the generation stage takes its capped selection from this order (SDS
+        §9.2.1). The order, highest first:
+
+          1. ``importance_score``
+          2. ``engagement`` in ``signal_breakdown``
+          3. ``topic`` in ``signal_breakdown``
+          4. ``published_date`` (newest first)
+
+        each descending with a missing value last, then ``id`` ascending.
+
+        The sort runs in Python after the query, not in SQL: the two signals
+        live inside the ``signal_breakdown`` JSON, and SQLite's ``json_extract``
+        would fail the whole query on one malformed row. A breakdown that is
+        missing, unparsable, not an object, or holds a non-numeric value counts
+        as a missing value and sorts last on that key.
 
         Args:
             status: The ItemStatus to filter on.
             language: The language code (e.g. 'EN').
 
         Returns:
-            List of Items, highest-scored first.
+            List of Items in selection order.
         """
-        stmt = (
-            select(Item)
-            .where(Item.status == status.value, Item.language == language)
-            .order_by(Item.importance_score.desc().nulls_last())
-        )
-        return list(self._session.execute(stmt).scalars().all())
+        stmt = select(Item).where(Item.status == status.value, Item.language == language)
+        items = list(self._session.execute(stmt).scalars().all())
+        return sorted(items, key=_selection_order_key)
 
     def get_by_source_and_external_id(self, source_id: str, external_id: str) -> Item | None:
         """Look up an item by its source identifier and external ID.
@@ -233,3 +247,51 @@ class ItemRepository:
             Item.status.not_in(excluded_statuses),
         )
         return list(self._session.execute(stmt).scalars().all())
+
+
+# ------------------------------------------------------------------
+# Selection order (D-010)
+# ------------------------------------------------------------------
+
+
+def _breakdown_value(item: Item, key: str) -> float | None:
+    """A finite number stored under ``key`` in ``signal_breakdown``, else None.
+
+    None covers every way the value can be unusable: no breakdown, JSON that
+    does not parse, JSON that is not an object, a missing key, a boolean, a
+    non-numeric value, or NaN and infinities.
+    """
+    raw = item.signal_breakdown
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    value = data.get(key)
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    if not math.isfinite(value):
+        return None
+    return float(value)
+
+
+def _descending_missing_last(value: float | None) -> tuple[int, float]:
+    """Sort key part: larger values first, a missing value after all of them."""
+    if value is None:
+        return (1, 0.0)
+    return (0, -value)
+
+
+def _selection_order_key(item: Item) -> tuple:
+    """D-010: score, engagement, topic, published_date descending; then id ascending."""
+    published = item.published_date.toordinal() if item.published_date is not None else None
+    return (
+        _descending_missing_last(item.importance_score),
+        _descending_missing_last(_breakdown_value(item, "engagement")),
+        _descending_missing_last(_breakdown_value(item, "topic")),
+        _descending_missing_last(published),
+        item.id,
+    )
