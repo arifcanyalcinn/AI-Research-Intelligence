@@ -18,10 +18,10 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 import yaml
-from pydantic import BaseModel, ConfigDict, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic import ValidationError as PydanticValidationError
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 
@@ -32,11 +32,19 @@ from arip.exceptions import ConfigError
 # ---------------------------------------------------------------------------
 
 
+SEED_MAX = 2**32 - 1
+"""Largest accepted seed: transformers.set_seed() also seeds numpy (SDS 5.15.2)."""
+
+
 class PipelineSettings(BaseModel):
-    """Top-level pipeline execution settings."""
+    """Top-level pipeline execution settings.
+
+    max_items_per_run must be at least 1 (SDS 5.15.2; 9.2.1 defines no
+    behaviour for 0).
+    """
 
     run_interval_hours: int = 6
-    max_items_per_run: int = 50
+    max_items_per_run: int = Field(default=50, ge=1)
     languages: list[str] = ["EN"]
     max_normalization_retries: int = 1
 
@@ -87,14 +95,33 @@ class DedupSettings(BaseModel):
 
 
 class GenerationParams(BaseModel):
-    """LLM generation hyperparameters passed to every generate() call."""
+    """LLM generation hyperparameters passed to every generate() call.
 
-    temperature: float = 0.7
-    max_new_tokens: int = 1024
-    top_p: float = 0.95
-    repetition_penalty: float = 1.1
-    seed: int | None = None
+    Value ranges (SDS 5.15.2), checked at load:
+      temperature >= 0 (0 means greedy decoding, D-011); 0 < top_p <= 1;
+      max_new_tokens >= 1; repetition_penalty > 0; seed null or 0..2**32-1;
+      stop_sequences without an empty string (whitespace-only is allowed).
+
+    Not to be confused with the top-level ``generation`` section
+    (GenerationSettings), which holds the pipeline's retry and validation
+    settings.
+    """
+
+    temperature: float = Field(default=0.7, ge=0)
+    max_new_tokens: int = Field(default=1024, ge=1)
+    top_p: float = Field(default=0.95, gt=0, le=1)
+    repetition_penalty: float = Field(default=1.1, gt=0)
+    seed: Annotated[int, Field(ge=0, le=SEED_MAX)] | None = None
     stop_sequences: list[str] = []
+
+    @field_validator("stop_sequences")
+    @classmethod
+    def no_empty_stop_sequence(cls, value: list[str]) -> list[str]:
+        if any(stop == "" for stop in value):
+            raise ValueError(
+                "stop_sequences must not contain an empty string: it would match any text"
+            )
+        return value
 
 
 class LLMSettings(BaseModel):
@@ -114,6 +141,42 @@ class LLMSettings(BaseModel):
     backend: str = "transformers"
     model_name: str  # REQUIRED -- no default
     generation: GenerationParams = GenerationParams()
+
+
+class ValidationConfig(BaseModel):
+    """Configurable checks of the content validator (SDS 5.11, 5.15.2).
+
+    Every other check of SDS 5.11 is fixed in arip.generation.validator,
+    including the 30-character segment minimum.
+    """
+
+    max_full_text_chars: int = Field(default=3000, ge=1)
+    """SDS 5.11 "Max length" of the assembled thread text, in characters."""
+
+    prohibited_phrases: list[str] = []
+    """SDS 5.11 "Prohibited phrases": case-insensitive substrings (D-014). None by default."""
+
+    @field_validator("prohibited_phrases")
+    @classmethod
+    def no_blank_phrase(cls, value: list[str]) -> list[str]:
+        if any(not phrase.strip() for phrase in value):
+            raise ValueError(
+                "prohibited_phrases must not contain an empty or whitespace-only entry: "
+                "it would match every text"
+            )
+        return value
+
+
+class GenerationSettings(BaseModel):
+    """The generation stage's retry and validation settings (SDS 5.10, 5.15.2).
+
+    Not the sampling parameters: those are llm.generation (GenerationParams).
+    """
+
+    max_retries: int = Field(default=2, ge=0)
+    """Retries after a failed validation: at most max_retries + 1 attempts per item and pass."""
+
+    validation: ValidationConfig = ValidationConfig()
 
 
 class EmbeddingSettings(BaseModel):
@@ -257,6 +320,7 @@ class AppSettings(BaseSettings):
     ranking: RankingSettings = RankingSettings()
     dedup: DedupSettings = DedupSettings()
     llm: LLMSettings  # No default -- model_name is required
+    generation: GenerationSettings = GenerationSettings()
     embeddings: EmbeddingSettings = EmbeddingSettings()
     review: ReviewSettings = ReviewSettings()
     publishing: PublishingSettings = PublishingSettings()
@@ -357,6 +421,12 @@ def print_settings_summary(settings: AppSettings, *, file: Any = None) -> None:
     print(f"  Languages         : {settings.pipeline.languages}", file=file)
     print(f"  LLM backend       : {settings.llm.backend}", file=file)
     print(f"  LLM model         : {settings.llm.model_name}", file=file)
+    print(f"  Max retries       : {settings.generation.max_retries}", file=file)
+    print(f"  Max text chars    : {settings.generation.validation.max_full_text_chars}", file=file)
+    print(
+        f"  Blocked phrases   : {len(settings.generation.validation.prohibited_phrases)}",
+        file=file,
+    )
     print(f"  Embedding model   : {settings.embeddings.model_name}", file=file)
     print(f"  Min score         : {settings.ranking.min_score}", file=file)
     print(f"  Dedup threshold   : {settings.dedup.semantic_threshold}", file=file)

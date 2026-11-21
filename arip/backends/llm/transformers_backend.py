@@ -17,10 +17,11 @@ quantization, non-quantized weights in bfloat16. Module constants, not
 configuration, and reported by ``get_model_info()``. NF4 is stated explicitly
 because ``BitsAndBytesConfig`` defaults to ``fp4``.
 
-**Prompt wrapping (D-011, ruling A8).** ``generate()`` receives the Jinja2
-output and wraps it as exactly one user message with the tokenizer's chat
-template (``add_generation_prompt=True``). The tokenizer's default system
-message is kept unmodified. ``prompt_tokens`` counts the wrapped input;
+**Prompt wrapping (D-011, ruling A8; SDS 5.9.1, D-013).** ``generate()``
+receives the Jinja2 output and wraps it as one user message with the
+tokenizer's chat template (``add_generation_prompt=True``). A ``system`` text,
+when given, is sent as the system message before it; without one the
+tokenizer's default system message applies unmodified. ``prompt_tokens`` counts the wrapped input;
 ``completion_tokens`` counts only the new tokens, and ``text`` decodes only
 those.
 
@@ -252,8 +253,12 @@ class TransformersBackend(BaseLLM):
     # Generation
     # ------------------------------------------------------------------
 
-    def generate(self, prompt: str, params: GenerationParams) -> GenerationResult:
+    def generate(
+        self, prompt: str, params: GenerationParams, system: str | None = None
+    ) -> GenerationResult:
         """Run one prompt through the loaded model.
+
+        ``system``, when given, is sent as the system message (SDS 5.9.1).
 
         Raises:
             RuntimeError: If called outside the context manager.
@@ -271,8 +276,10 @@ class TransformersBackend(BaseLLM):
             torch, transformers = self._torch, self._transformers
             if params.seed is not None:
                 transformers.set_seed(params.seed)
+            messages = [{"role": "system", "content": system}] if system is not None else []
+            messages.append({"role": "user", "content": prompt})
             wrapped = self._tokenizer.apply_chat_template(
-                [{"role": "user", "content": prompt}],
+                messages,
                 add_generation_prompt=True,
                 tokenize=False,
             )

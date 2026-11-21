@@ -1,0 +1,27 @@
+Write a short explanatory thread about the research paper described below. Use only the information given here.
+
+ITEM
+Title: Attention Is All You Need
+Found on: arXiv
+Authors: Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, and others
+Published: 2017-06-12
+Signals: upvotes 42
+Link: https://arxiv.org/abs/1706.03762
+Description:
+We propose the Transformer. It reaches 28.4 BLEU and trains 3x faster.
+
+FORMAT
+Write exactly six parts, in this order. Begin each part on a new line with its marker in square brackets, followed by the text on the same line:
+[HOOK] One sentence that makes the reader want to know more.
+[PROBLEM] The problem or need this work addresses.
+[SOLUTION] What was built or proposed, and how it works.
+[IMPACT] Why it matters and who can use it.
+[TAKEAWAY] The single most important point to remember.
+[SOURCE] One sentence saying where to read more, ending with this exact link: https://arxiv.org/abs/1706.03762
+
+RULES
+- Each part is one to three sentences and at most 280 characters.
+- Use only facts stated in the item above. If something is not stated, leave it out.
+- Copy any number exactly as it appears above. Do not add numbers that are not there.
+- Write plain text: no hashtags, no emojis, no markdown.
+- Write nothing before [HOOK] and nothing after the [SOURCE] part.

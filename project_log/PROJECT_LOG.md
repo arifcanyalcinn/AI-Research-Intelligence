@@ -1505,3 +1505,173 @@ The GPU run (`check_llm_backend.py`) and the Stage 5 closure follow after review
   `LLMError`: accepted.
 * (3) The one-time greedy-mode notice that `top_k` is ignored: harmless, accepted.
 * All three are already stated in D-011 as delivered; no DECISIONS or TECHNICAL_DEBT change.
+
+## Stage 6 – Prompts, validator, configuration (2026-11-21)
+
+### Rulings (2026-11-21, on the Stage 6 PRE-CODE)
+
+All recommendations accepted: A2, A3, A4 (ii), A5 (i), A9, A10 (ii), A12 (ii), A13 (i), A14 (i),
+S3, the D-011 value ranges, and the A11 storage format fixed now. Q1 (a) – the system text reaches
+the model through `generate(..., system=None)` (§5.9.1); Q2 (ii) – `full_prompt` holds both
+messages; Q3 and Q4 – the system text and the template wording approved; Q5 (a); Q6 (b); Q7 (a);
+Q8 – first five authors; Q9 – the header schema; Q10 (a); Q11 – fixed now in D-014; Q12 – collect
+every error; Q13 – the two patterns; Q14 – the ranges as drafted; Q15 – `max_full_text_chars` ≥ 1;
+Q16 – no upper bound on `max_retries`; Q17 – unknown keys ignored; Q18 – three check-config lines;
+Q19 – two D-records; Q20 – keep both names; Q21 – the additions to the Stage 5 files confirmed.
+Noted for the Stage 7 PRE-CODE: with A7's `base + attempt − 1` and continued attempt numbering, a
+seed can pass 2³² − 1.
+
+Approved verbatim: `config/prompts/thread_en.j2` (the draft, SHA-256 4e721acf…94fa with LF line
+endings) and the texts of §5.9.1, §5.11.1 and §5.15.2. Checked before the template went in: its
+`kinds` keys (PAPER, MODEL, SPACE, REPO) are exactly the stored `source_type` values (the
+`SourceType` enum, stored as `.value` by every source).
+
+### Measurement (user's machine, 2026-11-21, before implementation)
+
+`measure_prompt_budget.py` (outside the repository, SHA-256 e5adc3f7…bdb0) with the draft
+`thread_en.j2` (4e721acf…94fa) on the Stage 2 snapshot (7a7d6541…5103, unchanged: True):
+
+* Declared and used variables match: True. ENRICHED 179, eligible 135.
+* `abstract_has_percent_or_Nx` 34; `authors_over_5` 51; authors and signals JSON unusable 0; no
+  Jinja2 syntax in values; no missing required variable.
+* System text: 64 tokens, 327 characters.
+* Prompt tokens: arxiv (n=50) median 697, max 822; github_trending (n=42) median 418, max 462;
+  huggingface_papers (n=43) median 716, max 827; all: median 658, p90 770, max 827. With the
+  tokenizer's default system message: max 779.
+* Abstract characters: arxiv max 1918; github_trending min 15, median 98, max 339;
+  huggingface_papers max 1915.
+* Worst case: 827 + 1024 = 1851 of 32768 tokens (5.6%). Longest prompts: items 192 (827), 12
+  (822), 8 (813).
+* Observation only, no action: github_trending descriptions are short (median 98, min 15
+  characters), so the model has little to work from. Watch GitHub outputs in the Stage 9 live run.
+
+### Delivered
+
+* `docs/frozen_sds.md/frozen_sds.md` – §5.9.1 (after §5.9's Testing Strategy), §5.11.1 (after
+  §5.11's Testing Strategy) and §5.15.2 (after §5.15.1, before §5.16); additions only.
+* `config/prompts/thread_en.j2` – the approved template, CRLF.
+* `arip/generation/__init__.py`, `prompt_manager.py` (`PromptManager`, `is_missing`,
+  `stored_prompt`), `validator.py` (`ContentValidator`, `stored_messages`).
+* `arip/entities.py` – `PromptTemplate` (frozen; `prompt_template_id` property).
+* `arip/config.py` – `GenerationSettings` and `ValidationConfig` in a new top-level `generation`
+  section; the value ranges of §5.15.2 (`SEED_MAX = 2**32 - 1`); three check-config lines
+  ("Max retries", "Max text chars", "Blocked phrases"). `config/settings.yaml` – the `generation`
+  section with the defaults.
+* `arip/interfaces.py`, `arip/backends/llm/transformers_backend.py`, `stub_backend.py` – the
+  optional `system` argument (§5.9.1); `StubLLM.systems` records it, and `StubLLM.calls` keeps its
+  Stage 5 shape.
+* Tests, all in new files so that every existing test file stays byte-identical (section 1 of the
+  PRE-CODE named `test_config.py` and `test_llm.py` for additions; new files were used instead):
+  `tests/unit/test_config_generation.py` (17), `tests/unit/generation/test_prompt_manager.py` (23)
+  with `thread_en_golden.txt`, `tests/unit/generation/test_validator.py` (28),
+  `tests/unit/backends/test_llm_system.py` (3).
+* `project_log/DECISIONS.md` – D-013 (prompts), D-014 (validator).
+
+Not in Stage 6: the context builder, parser, generator, retries and seeds (Stage 7); GenerateStage,
+the cap and eligibility code, the startup template lookup and the A1 switch (Stage 8).
+
+Raised for review: the citation check is an exact substring test (A12, approved), so a SOURCE that
+contains a longer URL beginning with `primary_url` (for example `…/abs/1234` inside `…/abs/12345`)
+passes. Changing that needs a ruling.
+
+### Verification (before delivery)
+
+* `stage6_verify.py` (outside the repository): the template's LF-normalised bytes equal the
+  approved draft; the new SDS equals the old SDS plus exactly the three approved texts at their
+  points; existing test files byte-identical; `data/`, `.env` untouched.
+* Full suite 900 passed, 1 skipped (CUDA torch, transformers 5.20.2, bitsandbytes, no GPU), also
+  with bitsandbytes blocked; 818 passed, 4 skipped without the `embedding` and `llm` extras.
+  `ruff check` clean; 86 files formatted.
+* Mutations C1–C15, P1–P13, B1–B3, V1–V21, full suite each; the failing set equalled the predicted
+  set every time.
+
+The Stage 6 closure follows after review.
+
+### Verification (user's machine, 2026-11-21)
+
+Stage 6 applied, not committed.
+
+* Pre-hashes: True for 7 files. `arip/entities.py` and `arip/interfaces.py` were LF in the working
+  tree (`git ls-files --eol`: i/lf w/lf, status clean); their CRLF-normalised hashes equal the
+  pre-hashes (d64c3f7a…, 86e5484e…), so it was the line-ending case only. The input archive gave
+  both files as CRLF, so the Stage 6 versions were CRLF; Stage 6b returns them to LF, content
+  unchanged.
+* Post-hashes True for all 19 files. SDS numstat 70/0.
+* Reviewer verification: the three `approved_*.txt` equal the PRE-CODE texts character for
+  character; the new SDS, rebuilt independently from 35271503… plus the three texts, is identical,
+  insertions only; the template is LF-equal to 4e721acf…94fa.
+* Gate failed in `.venv`: 1 failed, 899 passed, 1 skipped.
+  `test_prompt_manager.py::test_crlf_template_renders_like_lf`:
+  `assert '\nTitle: T\n\nAbout: A\n' == 'Title: T\nAbout: A'`. Cause (reviewer, from the code):
+  `write_template()` used `Path.write_text()`, which on Windows translates "\n" to "\r\n", so the
+  "lf" fixture was CRLF and the test's `replace(b"\n", b"\r\n")` turned the "crlf" fixture into
+  "\r\r\n". The product code was fine: the shipped CRLF template passed the golden test on
+  Windows.
+
+## Stage 6b – Windows test fix, citation boundary (2026-11-21)
+
+### Ruling (2026-11-21)
+
+* **A12 citation boundary.** The prefix case must fail. `primary_url` must appear in a SOURCE
+  segment, and the character right after it is the end of the text, whitespace, or closing
+  punctuation that cannot continue the URL. A "." or "," counts as closing only if followed by the
+  end of the text or whitespace. Any other following character fails: a letter, a digit, "/", "-",
+  "_", "~", "?", "#", "&", "=", "%", "+", or "." followed by a non-space. Everything else in A12
+  stays: exact, no normalisation, SOURCE only. D-014 updated; no SDS change.
+
+### Delivered
+
+* `arip/generation/validator.py` – `_url_boundary()` and `_url_cited()`; the closing characters
+  are `URL_CLOSERS` = `)` `]` `}` `>` `"` `'`, and `SENTENCE_STOPS` = `.` `,` (closing only before the
+  end of the text or whitespace). Every occurrence of the URL is tried.
+* `tests/unit/generation/test_validator.py` – four tests: the prefix case; a URL followed by the
+  end of the text, ".", ". ", ")", a newline, ", " and a closing quote, all passing; a URL followed
+  by "/", "5", ".5", "-", "_", "~", "?", "#", "&", "=", "%", "+", a letter and ",x", all failing; a
+  later, correctly bounded occurrence counts.
+* `tests/unit/generation/test_prompt_manager.py` – the Windows fix. Audit of every Stage 6 test
+  for file I/O where line endings matter:
+  * `write_template()`: `Path.write_text()` replaced by `write_bytes()` of the UTF-8 text (exact LF
+    bytes). Changed.
+  * `test_crlf_template_renders_like_lf`: now also asserts that the "lf" fixture holds no "\r", that
+    the "crlf" fixture is exactly the LF bytes with "\r\n", and that the render is
+    `"Title: T\nAbout: A"`. Changed.
+  * `test_no_separator_or_bad_syntax_is_config_error`: `write_text("template_id: demo\n")` replaced
+    by `write_bytes(b"template_id: demo\n")`. Line endings do not matter there; changed alike.
+  * `GOLDEN.read_text()`: kept. Universal newlines on purpose, so the golden comparison holds
+    whatever line endings the checkout gives that file; the module docstring now says so.
+  * `tests/unit/test_config_generation.py` (`write_yaml()` with `write_text()`, and `read_text()` of
+    `settings.yaml`): not changed, because YAML parsing does not depend on line endings.
+  * `test_validator.py` and `test_llm_system.py`: no file I/O.
+* `arip/entities.py`, `arip/interfaces.py` – back to LF, as in the working tree at 254212c;
+  content identical to Stage 6.
+* `project_log/DECISIONS.md` – D-014: the citation boundary.
+
+### Verification (before delivery)
+
+* `stage6b_verify.py` (outside the repository): only the seven 6b files differ from Stage 6; the
+  two LF files equal their Stage 6 content; the SDS is unchanged (e5680130…) and still the old SDS
+  plus exactly the three approved texts; the template is still LF-equal to the draft; existing test
+  files byte-identical to 254212c.
+* Full suite 904 passed, 1 skipped (CUDA torch, transformers 5.20.2, bitsandbytes, no GPU), also
+  with bitsandbytes blocked; 822 passed, 4 skipped without the `embedding` and `llm` extras.
+  `ruff check` clean; 86 files formatted.
+* Windows approximation: every file under `tests/` CRLF, and a `sitecustomize` that makes every
+  text-mode write translate "\n" to "\r\n" as Windows does. On the Stage 6 tree it reproduces the
+  user's result exactly (1 failed, 899 passed, 1 skipped; the same test). On the 6b tree: 904
+  passed, 1 skipped.
+* Mutations: all of Stage 6 (C1–C15, P1–P13, B1–B3, V1–V21) rerun, V5 and V6 with new anchors on
+  the new citation code, plus P14 (PromptManager stops normalising newlines), V22 (no boundary),
+  V23 ("." and "," closing whatever follows), V24 (only the first occurrence tried) and V25 (")" not
+  a closing character); full suite each; the failing set equalled the predicted set every time.
+
+### Closure (ruled 2026-11-21)
+
+* The A12 citation boundary is ruled and implemented; D-014 records it. No SDS change: the boundary
+  reads §5.11's "appears in the SOURCE segment", and §5.11.1 is unaffected.
+* The Windows failure was in the test fixture, not the product; fixed and pinned (P14).
+* Line endings of `arip/entities.py` and `arip/interfaces.py` restored to LF.
+* Stage 6 and 6b are committed together, after the user's gate.
+* No TECHNICAL_DEBT change: nothing is deferred.
+* Raised for review: characters that the ruling lists neither as closing nor as continuing (for
+  example ";", ":", "!", "(", "*", and typographic quotes such as "”") fail, under "any other
+  following character fails".

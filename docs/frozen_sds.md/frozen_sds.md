@@ -1102,6 +1102,23 @@ with llm_registry.get_backend() as llm:
 
 **Testing Strategy:** Implement a `StubLLM` backend that returns configurable canned responses without loading any model. All pipeline tests use `StubLLM`. The real backend is integration-tested separately against a small model (~1B parameters).
 
+### 5.9.1 — System Message
+
+**Amends:** the `BaseLLM` interface in §5.9, whose `generate(prompt: str, params: GenerationParams) -> GenerationResult` takes no system message. The original block is left in place.
+
+A chat model takes a system message before the user message. §5.9 passes `generate()` only one prompt, so the model's chat template supplies its own default; for Qwen2.5-Instruct that is "You are Qwen, created by Alibaba Cloud. You are a helpful assistant." (verified on the cached model in Batch 11, Stage 5). `generate()` gains an optional argument:
+
+```
+generate(prompt: str, params: GenerationParams, system: str | None = None) -> GenerationResult
+```
+
+1. `prompt` is the user message: the template body rendered by §5.8.
+2. `system`, when given, is sent as the system message, before the user message. Each prompt template supplies its system text in its header (D-013).
+3. With `system=None`, the backend sends the user message alone and the model's chat template applies its own default, if it has one — the behaviour before this subsection.
+4. `StubLLM` records `system` with each call, next to the prompt and the parameters.
+
+*No frozen decision in §9.1 is altered by this amendment.*
+
 ---
 
 ## 5.10 Content Generator
@@ -1168,6 +1185,23 @@ ValidationResult
 ```
 
 **Testing Strategy:** Test each check independently with fixture content strings. Use parameterized tests for edge cases (minimum length, exactly-at-limit, exceeds-limit).
+
+### 5.11.1 — Truncation Input and Stored Warnings
+
+**Amends:** §5.11 — the `ContentValidator` interface, `validate(content: GeneratedContent, item: Item) -> ValidationResult` — and, for the stored row, the `validation_errors` column of §4.3 ("List of validation error strings"). The original text is left in place.
+
+**Truncation input.** The truncation check tests `stop_reason != "max_tokens"`. `generate()` returns `stop_reason` in `GenerationResult` (§5.9), and `generated_content` (§4.3) has no column for it, so a `GeneratedContent` row cannot carry it. The validator receives it as a third argument:
+
+```
+ContentValidator(config: ValidationConfig)
+└── validate(content: GeneratedContent, item: Item, stop_reason: str) -> ValidationResult
+```
+
+`stop_reason` is one of the three values §5.9 defines; any other value raises `ValueError`. `ValidationConfig` is defined in §5.15.2.
+
+**Stored warnings.** `ValidationResult` keeps errors and warnings apart. The stored `validation_errors` list holds both: every error as written, then every warning prefixed `WARNING: `. A row with `validation_passed = True` can therefore hold a non-empty list; only entries without the prefix are errors. Each warning is also logged at WARNING level.
+
+*No frozen decision in §9.1 is altered by this amendment.*
 
 ---
 
@@ -1464,6 +1498,42 @@ D-005 — per-source tuning values are module constants — does not govern here
 addresses the SDS is silent about configurability; §5.5 states it explicitly. `recency_k` is also
 the only lever an operator has over the interaction between item age and `min_score`, which
 determines how quickly a source with no engagement metric ages below the threshold.
+
+*No frozen decision in §9.1 is altered by this amendment.*
+
+### 5.15.2 — Generation Settings and Value Ranges
+
+**Amends:** the configuration model of §5.15, which has no `generation` section although §5.10 reads `config.generation.max_retries`, no model for the `ValidationConfig` of §5.11, and no value ranges for `pipeline.max_items_per_run` or `llm.generation`. The original block is left in place.
+
+**New section.**
+
+```
+generation: GenerationSettings
+├── max_retries: int = 2                     # retries after a failed validation (§3.3, §5.10)
+└── validation: ValidationConfig
+    ├── max_full_text_chars: int = 3000      # §5.11 "Max length"
+    └── prohibited_phrases: list[str] = []   # §5.11 "Prohibited phrases"
+```
+
+- `max_retries` counts retries, not attempts: with the default of 2, an item gets at most three attempts in one generation pass.
+- `prohibited_phrases` is empty by default; the SDS names no phrase. Matching is case-insensitive (D-014).
+- The 30-character segment minimum of §5.11 stays fixed; the SDS does not call it configurable.
+- A `settings.yaml` without a `generation` section loads with these defaults.
+
+**Value ranges.** Checked at load; a value outside its range is a `ConfigError` (§5.15, Validation).
+
+| Field | Accepted | Reason |
+|---|---|---|
+| `pipeline.max_items_per_run` | ≥ 1 | §9.2.1 defines no behaviour for 0 |
+| `llm.generation.temperature` | ≥ 0 | 0 means greedy decoding (D-011); a negative value would silently mean the same |
+| `llm.generation.top_p` | > 0 and ≤ 1 | transformers rejects values above 1; 0 would silently mean greedy decoding |
+| `llm.generation.max_new_tokens` | ≥ 1 | |
+| `llm.generation.repetition_penalty` | > 0 | transformers rejects 0 and negative values |
+| `llm.generation.seed` | null, or 0 to 2³² − 1 | `transformers.set_seed()` also seeds numpy, which rejects values outside this range |
+| `llm.generation.stop_sequences` | no empty string | an empty stop string would match any text; whitespace-only strings such as a blank line are allowed |
+| `generation.max_retries` | ≥ 0 | |
+| `generation.validation.max_full_text_chars` | ≥ 1 | |
+| `generation.validation.prohibited_phrases` | no empty or whitespace-only entry | such an entry would match every text |
 
 *No frozen decision in §9.1 is altered by this amendment.*
 

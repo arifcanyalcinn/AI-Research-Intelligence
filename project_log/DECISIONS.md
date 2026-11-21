@@ -412,3 +412,127 @@ Outside the default gate, so no mutations. The default suite gains one skipped
 test in every environment.
 
 Introduced in Batch 11, Stage 5.
+
+---
+
+## D-013
+
+Prompt templates (SDS §5.8, §5.9.1). One template per use case and language in
+`config/prompts/`: `thread_en.j2` is the only one in Phase 4 and serves every
+source type. A file is a YAML header, a line holding only `---`, and the Jinja2
+body. The header keys are exactly `template_id`, `language`, `description`,
+`required_variables`, `optional_variables` and `system`; an unknown or missing
+key, a filename other than `{template_id}_{language code}.j2`, a blank `system`,
+and any difference between the variables the body uses and those the header
+declares are `ConfigError` at load. Rendering uses a sandboxed environment with
+`StrictUndefined`. Every missing value (`None`, a blank string, an empty
+collection) is dropped from the context first, so an optional field takes its
+`default(...)` or `is defined` branch, and a missing required variable raises
+`jinja2.UndefinedError` naming it. The header's `system` text is sent as the
+system message (§5.9.1), which supersedes D-011's sub-ruling A8 (keep the
+tokenizer's default) for every templated generation. The stored
+`prompt_template_id` is `thread_en`; the stored `full_prompt` is
+`"### SYSTEM\n" + system text + "\n\n### USER\n" + rendered body`, built by
+`stored_prompt()`.
+
+### Reason
+
+- A9: a fixed header makes "required variables" explicit (§5.8 says "validate
+  that all required variables are provided" without saying how they are
+  declared); the declared-against-used check makes a misspelt variable fail at
+  load instead of silently taking its default. One template: "type" in §5.10 is
+  read as the use case, and the Phase 4 deliverable is "English template".
+- Missing values (ruling Q6): Jinja2's `default` filter does not fire on
+  `None` (verified with Jinja2 3.1.4), so §5.8's "The renderer never injects
+  Python `None` as a string" needs the renderer to drop such keys. Blank strings
+  and empty collections are dropped too, matching §9.2.1's `str.strip()`.
+- A10 (ii): required `title`, `primary_url`, `source_type`, `source_id`;
+  optional `abstract`, `authors` (first five, then ", and others"),
+  `published_date`, `source_signals`. No ranking scores. These fields are
+  supplementary input only; eligibility stays on `abstract` (§9.2.1). A12 (ii):
+  `primary_url` is required, so an item without one fails before any LLM call.
+- System text (rulings Q1–Q3): a role statement for ARIP instead of "You are
+  Qwen, created by Alibaba Cloud…", kept in the template so that the wording is
+  prompt design under git and each language carries its own.
+- `full_prompt` (ruling Q2): §4.3 calls it the "Complete rendered prompt sent to
+  LLM"; the layout keeps both messages and can be split again. The chat markers
+  added by the tokenizer are not stored (D-011).
+
+### Rejected Alternatives
+
+- Free-form metadata with required variables inferred from the body; one
+  template per source type; lenient undefined (A9 options).
+- Dropping only `None` (Q6 option a).
+- The system text as a `GenerationParams` field, a backend constant, or not at
+  all (Q1 options b–d); storing the rendered body only (Q2 option i).
+
+### Scope
+
+`config/prompts/thread_en.j2` is approved verbatim (2026-11-21, SHA-256
+4e721acf…94fa with LF line endings). The context builder that fills these
+variables from an item is Stage 7; the startup lookup of the template for each
+configured language is Stage 8 (ruling Q10). Pinned by
+`tests/unit/generation/test_prompt_manager.py`, including a golden render of
+the shipped template.
+
+Introduced in Batch 11, Stage 6.
+
+---
+
+## D-014
+
+Validator conventions (SDS §5.11, §5.11.1). `parsed_segments` is a JSON list of
+`{"role": <SegmentRole value>, "text": <str>}` objects in canonical order (HOOK,
+PROBLEM, SOLUTION, IMPACT, TAKEAWAY, SOURCE), and `full_text` is the segment
+texts joined by a blank line, without markers; the parser that writes them is
+Stage 7. `ContentValidator.validate()` runs every check and collects every
+error. A `parsed_segments` of `None`, or one not in this format, is a parse
+error, after which only the truncation check runs. The citation check needs the
+exact `primary_url` string inside a SOURCE text, with no normalisation, followed
+by a URL boundary: the end of the text, whitespace, one of `)` `]` `}` `>` `"`
+`'`, or a `.` or `,` that is itself followed by the end of the text or
+whitespace. Any other following character continues the URL and fails (a
+letter, a digit, `/`, `-`, `_`, `~`, `?`, `#`, `&`, `=`, `%`, `+`, a `.`
+followed by a non-space, and every character not listed as a boundary). Every
+occurrence of the URL is tried. Each
+segment needs at least 30 characters after `str.strip()`, SOURCE included.
+Prohibited phrases match as case-insensitive (casefolded) substrings of
+`full_text`. The numeric check uses §5.11's two example patterns (percentages
+and "N x"); a number is supported when it occurs in the abstract or in a
+`source_signals` value and is not part of a longer number. Warnings never fail a
+row and are logged at WARNING level as `validation_warning`.
+
+### Reason
+
+- Q11: the validator reads the stored format, so it is fixed in the same stage
+  as the validator rather than left to the parser.
+- Q12: every error at once gives a specific `failure_reason` and shows the model's
+  failure pattern in Stage 9.
+- A12: the URL is given to the model verbatim, so an exact match is the test of
+  "cited". A13: simple and predictable; the list is empty by default (§5.15.2).
+- A12 boundary (ruled 2026-11-21, Stage 6b): a plain substring test passed a
+  SOURCE holding a longer URL that begins with `primary_url` (for example
+  `…/abs/1234` inside `…/abs/12345`). The boundary is a reading of §5.11's
+  "appears in the SOURCE segment", so no SDS amendment.
+- A14 (i): HF models and spaces carry no abstract, and wider patterns would
+  raise the warning rate before there is data; the boundary keeps "5%" from
+  being covered by "15%" and "12" by "12.5". The title is not a source (§5.11
+  names `source_signals` and `abstract`).
+- Q5 (a): the template asks for a sentence ending with the link, so SOURCE can
+  meet the 30-character minimum (a bare `https://github.com/a/b` has 22).
+
+### Rejected Alternatives
+
+- Stopping at the first error (Q12). Case-sensitive or word-boundary phrase
+  matching (A13 ii, iii). Wider numeric patterns (A14 ii, iii). URL
+  normalisation. Exempting SOURCE from the minimum (Q5 b).
+- A plain substring test for the citation (Stage 6 as first delivered).
+
+### Scope
+
+Stage 6 delivers the validator and `stored_messages()`; the generator (Stage 7)
+calls them, stores the row and decides retries (§5.10). Pinned by
+`tests/unit/generation/test_validator.py`.
+
+Introduced in Batch 11, Stage 6.
+Citation boundary added in Batch 11, Stage 6b.

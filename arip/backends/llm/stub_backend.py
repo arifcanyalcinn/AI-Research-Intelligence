@@ -13,7 +13,8 @@ Behaviour (ruling Q15):
 * a configured ``LLMError`` can be raised on chosen call numbers (1-based),
   for the A18 failure paths in Stages 7 and 8;
 * every prompt and its params are recorded in ``calls``, including a call
-  that raises;
+  that raises, and the ``system`` text of each call in ``systems``
+  (SDS 5.9.1);
 * the lifecycle matches the real backend: ``generate()`` outside the context
   manager raises ``RuntimeError``, and ``is_loaded`` is false after exit.
 
@@ -65,6 +66,7 @@ class StubLLM(BaseLLM):
         self._error = error
         self._loaded = False
         self.calls: list[tuple[str, GenerationParams]] = []
+        self.systems: list[str | None] = []
 
     @property
     def is_loaded(self) -> bool:
@@ -78,13 +80,16 @@ class StubLLM(BaseLLM):
         """Mark the stub unloaded. Nothing is on the GPU, so nothing to empty."""
         self._loaded = False
 
-    def generate(self, prompt: str, params: GenerationParams) -> GenerationResult:
+    def generate(
+        self, prompt: str, params: GenerationParams, system: str | None = None
+    ) -> GenerationResult:
         if not self._loaded:
             raise RuntimeError(
                 "StubLLM.generate() called outside its context manager. "
                 "Use `with llm_registry.get_backend() as llm:` first (SDS §5.9)."
             )
         self.calls.append((prompt, params))
+        self.systems.append(system)
         number = len(self.calls)
         if number in self._fail_on_calls:
             raise self._error or LLMError(f"StubLLM: configured failure on call {number}")

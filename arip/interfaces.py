@@ -247,12 +247,18 @@ class BaseLLM(ABC):
         """
 
     @abstractmethod
-    def generate(self, prompt: str, params: GenerationParams) -> GenerationResult:
+    def generate(
+        self, prompt: str, params: GenerationParams, system: str | None = None
+    ) -> GenerationResult:
         """Run inference and return the model's response.
 
         Args:
-            prompt: Fully-rendered prompt string (Jinja2 template already applied).
+            prompt: Fully-rendered prompt string (Jinja2 template already applied),
+                    sent as the user message.
             params: Generation hyperparameters.
+            system: The system message, sent before the user message (SDS 5.9.1).
+                    None sends the user message alone, and the model's chat
+                    template applies its own default, if it has one.
 
         Returns:
             GenerationResult with text, token counts, latency, and stop_reason.

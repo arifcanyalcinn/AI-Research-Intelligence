@@ -59,6 +59,16 @@ llm:
     seed: null
     stop_sequences: []
 
+generation:
+  # Retries after a failed validation (SDS 5.10, 5.15.2): at most max_retries + 1 attempts
+  # per item and generation pass.
+  max_retries: 2
+  validation:
+    # SDS 5.11 "Max length" of the assembled thread text, in characters.
+    max_full_text_chars: 3000
+    # SDS 5.11 "Prohibited phrases": case-insensitive substrings. None by default.
+    prohibited_phrases: []
+
 embeddings:
   backend: "sentence_transformers"
   model_name: "all-MiniLM-L6-v2"

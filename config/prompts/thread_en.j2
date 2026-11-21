@@ -1,0 +1,47 @@
+template_id: thread
+language: EN
+description: Six-part explanatory thread about one AI research item.
+required_variables: [title, primary_url, source_type, source_id]
+optional_variables: [abstract, authors, published_date, source_signals]
+system: >-
+  You are a technical writer for ARIP, a digest of new AI research. You explain
+  papers, models, demos and open-source projects clearly and accurately for
+  software engineers and students. You use only the information you are given.
+  You never invent results, numbers, names or links. You follow the requested
+  output format exactly.
+---
+{% set kinds = {"PAPER": "research paper", "MODEL": "model", "SPACE": "demo app (a Hugging Face Space)", "REPO": "open-source repository"} %}
+{% set sources = {"arxiv": "arXiv", "huggingface_papers": "Hugging Face Papers", "huggingface_models": "Hugging Face Models", "huggingface_spaces": "Hugging Face Spaces", "github_trending": "GitHub Trending", "papers_with_code": "Papers with Code"} %}
+Write a short explanatory thread about the {{ kinds.get(source_type, "item") }} described below. Use only the information given here.
+
+ITEM
+Title: {{ title }}
+Found on: {{ sources.get(source_id, source_id) }}
+{% if authors is defined %}
+Authors: {{ authors[:5] | join(", ") }}{{ ", and others" if authors | length > 5 else "" }}
+{% endif %}
+{% if published_date is defined %}
+Published: {{ published_date }}
+{% endif %}
+{% if source_signals is defined %}
+Signals: {{ source_signals | dictsort | map("join", " ") | join(", ") }}
+{% endif %}
+Link: {{ primary_url }}
+Description:
+{{ abstract | default("Not provided.") }}
+
+FORMAT
+Write exactly six parts, in this order. Begin each part on a new line with its marker in square brackets, followed by the text on the same line:
+[HOOK] One sentence that makes the reader want to know more.
+[PROBLEM] The problem or need this work addresses.
+[SOLUTION] What was built or proposed, and how it works.
+[IMPACT] Why it matters and who can use it.
+[TAKEAWAY] The single most important point to remember.
+[SOURCE] One sentence saying where to read more, ending with this exact link: {{ primary_url }}
+
+RULES
+- Each part is one to three sentences and at most 280 characters.
+- Use only facts stated in the item above. If something is not stated, leave it out.
+- Copy any number exactly as it appears above. Do not add numbers that are not there.
+- Write plain text: no hashtags, no emojis, no markdown.
+- Write nothing before [HOOK] and nothing after the [SOURCE] part.

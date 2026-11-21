@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Literal
 
-from arip.enums import ReviewDecisionType, SegmentRole, SourceType
+from arip.enums import Language, ReviewDecisionType, SegmentRole, SourceType
 
 # ---------------------------------------------------------------------------
 # Source layer
@@ -137,6 +137,35 @@ class ContentSegment:
 
     role: SegmentRole
     text: str
+
+
+# ---------------------------------------------------------------------------
+# Prompt layer
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class PromptTemplate:
+    """One prompt template file, as loaded by PromptManager (SDS 5.8, D-013).
+
+    The header keys are exactly these fields except ``body`` and
+    ``source_path``. ``system_text`` is sent as the system message
+    (SDS 5.9.1).
+    """
+
+    template_id: str
+    language: Language
+    description: str
+    required_variables: tuple[str, ...]
+    optional_variables: tuple[str, ...]
+    system_text: str
+    body: str
+    source_path: str
+
+    @property
+    def prompt_template_id(self) -> str:
+        """The value stored in generated_content.prompt_template_id, e.g. 'thread_en'."""
+        return f"{self.template_id}_{self.language.value.lower()}"
 
 
 # ---------------------------------------------------------------------------
