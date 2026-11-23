@@ -536,3 +536,123 @@ calls them, stores the row and decides retries (§5.10). Pinned by
 
 Introduced in Batch 11, Stage 6.
 Citation boundary added in Batch 11, Stage 6b.
+
+---
+
+## D-015
+
+Generator conventions (SDS §5.10, §5.10.1). `ContentGenerator.generate(item)`
+uses the `thread` template in the item's language (a `ConfigError` propagates).
+A missing required variable makes it return `None` with `last_failure_reason`
+"Template error: …", without an LLM call or a row. Otherwise it makes at most
+`max_retries + 1` attempts, numbered after the item's highest stored attempt
+(`ContentRepository.max_attempt_for_item()`). Attempt seeds are
+`(base + attempt − 1) mod 2³²`; the base is the configured seed, or, when that is
+null, one value per call from `secrets.randbelow(2**32)`. Only the seed differs
+between attempts. Each attempt sends the rendered body with the template's system
+text, parses the output (D-016), validates a transient row with the attempt's
+`stop_reason`, and stores the row with `validation_errors` =
+`json.dumps(stored_messages(result), ensure_ascii=False)` (always a JSON list,
+`"[]"` when empty). A failed attempt is stored with `is_active=False`; a passing
+one first calls `deactivate_all_for_item()` and is stored with `is_active=True`.
+Invariants: at most one active row per item, and an active row has passed
+validation. An `LLMError` is not retried: `last_failure_reason` becomes "LLM
+error: …" and the error propagates. When every attempt fails, `generate()`
+returns `None` with "Validation failed after N attempts: " and the last
+attempt's errors. Every failure is recorded by the caller with
+`failed_at_stage='GENERATION'`. The generator never commits, and it logs one
+`generation_attempt` event per attempt (token counts live only there).
+
+### Reason
+
+- A6 (i): an active row is one "selected for review/publishing" (§4.3), so a
+  failed attempt cannot be active. Continued numbering keeps
+  `get_by_item_and_attempt()` unambiguous on a second pass and keeps seeds from
+  repeating.
+- A7 and the overflow rule: one formula for both cases; modulo keeps every seed
+  inside the range numpy accepts (§5.15.2). `secrets`, not `random`:
+  `transformers.set_seed()` reseeds Python's `random` on every call, so a base
+  drawn from `random` would follow from the previous item's seed.
+- A18 (i), A19 (ii): §5.10.1. Q2: §3.3's ENRICHED → FAILED transition sets
+  `failed_at_stage='GENERATION'`; the `VALIDATION` value appears only in §3.3's
+  re-queue table, and no transition sets it. The reason prefixes ("Validation
+  failed after …", "Template error: …", "LLM error: …") tell the cases apart.
+- Q8: a transient row is validated before the insert, so every column is
+  written once; validator warning logs then carry `content_id=None`, and
+  `item_id` still identifies the row. Q9: readers can always `json.loads()`.
+- Q14: the last attempt's errors are the most recent evidence; every attempt's
+  errors stay in its own row.
+
+### Rejected Alternatives
+
+- Failed attempts active, or all rows active (A6 ii, iii). Restarting attempt
+  numbers at 1 (Q7). A null seed staying null (A7 i), or a base from the item id
+  (A7 iii). Clamping or raising at 2³² − 1 (Q6). Retrying an `LLMError` (A18 ii).
+  Storing a placeholder row for a template error (A19 iii). Passing `AppSettings`
+  to the generator (Q4); a result object instead of the attribute (Q5).
+
+### Requirements on Stage 8 (reviewer, 2026-11-23)
+
+1. §5.10.1 says that rows stored for earlier attempts are kept when an `LLMError`
+   propagates. The generator never commits, so this depends on the caller: after
+   an `LLMError`, the stage marks the item FAILED and commits, and it must not
+   roll back the session in a way that discards those rows. The Stage 8 PRE-CODE
+   shows how this is met and pins it with a test.
+2. Open for the Stage 8 PRE-CODE, no ruling now: when a regeneration pass (an
+   item re-queued from PENDING_REVIEW) fails every attempt, the previous active
+   row stays active while the item becomes FAILED, because deactivation runs
+   only on success. Stage 8 rules whether that is acceptable, or whether a pass
+   deactivates earlier rows at its start.
+
+### Scope
+
+`arip/generation/generator.py` and `arip/db/repositories/content.py`; the item
+transitions, `generated_at` and `failure_reason` are written by the generation
+stage (Stage 8). Pinned by `tests/unit/generation/test_generator.py` and
+`tests/unit/test_content_repository.py`.
+
+Introduced in Batch 11, Stage 7.
+
+---
+
+## D-016
+
+Context builder and output parser (SDS §5.10, rulings A10 and A11).
+`build_context(item)` returns exactly the variables of `thread_en.j2`: `title`,
+`primary_url`, `source_type`, `source_id` unchanged; `abstract` stripped;
+`authors` from the JSON list, entries as stripped strings with blanks dropped;
+`published_date` in ISO form; `source_signals` from the JSON object unchanged.
+JSON that does not parse, or has the wrong shape, counts as missing; the renderer
+drops missing values (D-013). `parse_output(raw)` recognises a marker line
+`[HOOK]` … `[SOURCE]` at the start of a line, in any case, with up to two `*` or
+`_` around it, spaces inside the brackets and an optional `:` after it. The
+segment text is the rest of the marker line plus the following lines up to the
+next marker, stripped at both ends. Text before the first marker is dropped and
+its length logged; a marker inside a line is text; text after SOURCE belongs to
+SOURCE; roles out of order are stored in canonical order; a missing role parses;
+a marker without text gives an empty segment. No marker at all, or a repeated
+role, is a parse failure (`None`). Storage as D-014, with
+`ensure_ascii=False`.
+
+### Reason
+
+- A10 (ii): the same mapping as the Stage 6 measurement, so the measured prompt
+  sizes apply; no ranking field reaches the model.
+- A11 (ii): a 3B model decorates markers; rejecting `**[Hook]**` costs a full
+  generation without protecting quality. A repeated role is ambiguous; a missing
+  role is the validator's completeness error, with a specific message.
+- Q11: separate `context.py` and `parser.py` beside the three files §6 lists, so
+  each is tested on its own. Q12: rows stay readable.
+
+### Rejected Alternatives
+
+- Strict markers (A11 i); requiring order (A11 iii). Keeping preambles. Putting
+  the builder and the parser in `generator.py`.
+
+### Scope
+
+Pinned by `tests/unit/generation/test_context.py` and
+`tests/unit/generation/test_parser.py`, including a test that runs clean parser
+output through the validator. The real parse-failure rate is a Stage 9 question.
+
+Introduced in Batch 11, Stage 7.

@@ -1675,3 +1675,65 @@ Stage 6 applied, not committed.
 * Raised for review: characters that the ruling lists neither as closing nor as continuing (for
   example ";", ":", "!", "(", "*", and typographic quotes such as "”") fail, under "any other
   following character fails".
+
+## Stage 7 – Content generator and repository (2026-11-23)
+
+### Rulings recorded first (2026-11-23)
+
+* **A12, the open question from 6b.** Characters named neither as closing nor as continuing (";",
+  ":", "!", "(", "*" and typographic quotes such as "”") stay "continuing", so they fail the
+  citation check. Conservative on purpose: most are legal inside a URL, and the cost is one retry.
+  Revisit only if Stage 9 shows outputs failing for this reason.
+* **Line endings.** `arip/entities.py` and `arip/interfaces.py` are LF in the working tree at
+  5639622 (git warned "LF will be replaced by CRLF the next time Git touches it"). From now on, the
+  pre-hash checks for modified files are content-based (CRLF-normalised), or give both the LF and
+  the CRLF hash, so a checkout-side conversion never blocks a stage.
+
+### Rulings (2026-11-23, on the Stage 7 PRE-CODE)
+
+All recommendations accepted: A2, A4, A5, A6 (i), A7, the seed overflow modulo 2³², A10, A11 (ii),
+the A12 path, A18 (i), A19 (ii). Q1 (i); Q2 `GENERATION`; Q3 the reason texts as given; Q4 the two
+constructor arguments; Q5 the `last_failure_reason` attribute; Q6 modulo, with `secrets`; Q7
+continued attempt numbers; Q8 a transient row is validated before the insert; Q9 `"[]"`; Q10 the
+parser rules as proposed; Q11 separate modules; Q12 `ensure_ascii=False`; Q13 the constant
+`thread`; Q14 the last attempt's errors; Q15 one log event per attempt.
+
+Approved verbatim: §5.10.1, at its stated insertion point (after §5.10's Testing Strategy, before
+§5.11).
+
+Reviewer additions, recorded in D-015 for Stage 8 (no code change in Stage 7): (1) after an
+`LLMError` the stage must mark the item FAILED and commit without discarding the rows of earlier
+attempts, shown and tested in the Stage 8 PRE-CODE; (2) open: a regeneration pass that fails every
+attempt leaves the previous active row active while the item becomes FAILED.
+
+### Delivered
+
+* `docs/frozen_sds.md/frozen_sds.md` – §5.10.1; additions only.
+* `arip/generation/context.py` (`build_context`, `CONTEXT_KEYS`), `parser.py` (`parse_output`,
+  `parsed_segments_json`, `full_text`), `generator.py` (`ContentGenerator`, `attempt_seed`,
+  `TEMPLATE_ID`, `SEED_MODULUS`).
+* `arip/db/repositories/content.py` – `ContentRepository`: `create`, `get_active_for_item`,
+  `deactivate_all_for_item`, `get_by_item_and_attempt` (§5.14), and the addition
+  `max_attempt_for_item`.
+* Tests (new files): `tests/unit/generation/test_context.py` (7), `test_parser.py` (14),
+  `test_generator.py` (22), `tests/unit/test_content_repository.py` (5).
+* `project_log/DECISIONS.md` – D-015 (generator), D-016 (context builder and parser).
+
+Not in Stage 7: GenerateStage and the item transitions, `generated_at` and `failure_reason`
+writes, the cap and eligibility code, the A1 switch, the startup template lookup and the A18 stop
+rule (Stage 8). No TECHNICAL_DEBT change.
+
+### Verification (before delivery)
+
+* `stage7_verify.py` (outside the repository): `approved_5_10_1.txt` is LF; the new SDS equals the
+  old SDS (e5680130…) plus exactly that text at its point; SDS numstat 23/0; only the expected
+  files added or changed; existing test files byte-identical; `data/`, `.env` untouched.
+* Full suite 952 passed, 1 skipped (CUDA torch, transformers 5.20.2, bitsandbytes, no GPU), also
+  with bitsandbytes blocked; 870 passed, 4 skipped without the `embedding` and `llm` extras.
+  `ruff check` clean; 94 files formatted.
+* Windows approximation (every test file CRLF, every text-mode write translating "\n" to "\r\n"):
+  952 passed, 1 skipped.
+* Mutations X1–X5, K1–K10, G1–G20, R1–R5, full suite each; the failing set equalled the predicted
+  set every time.
+
+The Stage 7 closure follows after review.

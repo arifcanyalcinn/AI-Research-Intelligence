@@ -1153,6 +1153,29 @@ Returns `None` when all retries exhausted (caller marks item FAILED).
 
 **Testing Strategy:** Use `StubLLM` with pre-configured outputs (valid, invalid-format, and edge-case outputs). Test retry logic. Test that all retries produce new `GeneratedContent` rows with incrementing `attempt` values.
 
+### 5.10.1 — Generator Inputs, Failure Reason and `LLMError`
+
+**Amends:** §5.10 — the `ContentGenerator` interface, which receives no generation parameters, no retry limit and no way to report why `generate()` returned `None` — and resolves the contradiction between §5.9 ("Inference error: caught in `generate()`, raises `LLMError`. Caller retries with different seed.") and §5.10 ("`LLMError`: propagate up, item marked FAILED (no retry — hardware/model issue)."). The original text of both sections is left in place.
+
+**Interface.**
+
+```
+ContentGenerator(llm: BaseLLM, prompt_manager: PromptManager,
+                 validator: ContentValidator, content_repo: ContentRepository,
+                 params: GenerationParams, max_retries: int)
+├── generate(item: Item) -> GeneratedContent | None
+└── last_failure_reason: str | None
+```
+
+- `params` is `config.llm.generation`; `max_retries` is `config.generation.max_retries` (§5.15.2). One call of `generate()` makes at most `max_retries + 1` attempts.
+- Every call of `generate()` sets `last_failure_reason`: `None` when it returns a row, otherwise the text the caller stores in `failure_reason` when it marks the item FAILED (§3.3).
+
+**`LLMError`.** §5.10 applies. An `LLMError` raised by `llm.generate()` is not retried: it propagates out of `ContentGenerator.generate()` after `last_failure_reason` is set, and the caller marks the item FAILED with `failed_at_stage='GENERATION'`. Rows already stored for earlier attempts in the same call are kept. §5.9's "Caller retries with different seed" does not apply to the generator. What the generation stage does after repeated `LLMError`s in one pass is decided with that stage.
+
+**Template errors.** When rendering raises `jinja2.UndefinedError` (§5.8), `generate()` returns `None` without calling the LLM and without storing a row; the error does not count as an attempt.
+
+*No frozen decision in §9.1 is altered by this amendment.*
+
 ---
 
 ## 5.11 Content Validator
