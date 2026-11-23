@@ -1761,3 +1761,78 @@ The Stage 7 closure follows after review.
   committed without discarding the rows of earlier attempts, shown and pinned by a test; (2) open:
   a regeneration pass that fails every attempt leaves the previous active row active while the
   item becomes FAILED.
+
+## Stage 8 – Generation stage and wiring (2026-11-23)
+
+### Rulings recorded first (2026-11-23)
+
+* **Attribution rule, permanent.** No attribution or trailer line of any kind (co-author lines,
+  session links, tool credits) anywhere: not in commit messages or the commands that make them,
+  not in repository files, not in PROJECT_LOG, DECISIONS or TECHNICAL_DEBT, not in scripts or
+  outputs delivered. Commit messages are a single line. The reviewer scans every delivery for such
+  strings and rejects it if one is found. The Stage 7 closure commands had contained two such
+  lines.
+* The Stage 7 closure was applied and pushed as 2fa2d8c; all checks True; numstat 25/1.
+
+### Rulings (2026-11-23, on the Stage 8 PRE-CODE)
+
+All recommendations accepted. A1: `generation.enabled`, default false. A18, stage part: threshold
+1. A20: by structure, pinned by O1–O4. TD-023 (b) implemented as §9.2.1 states; eligibility with
+`str.strip()`; skipped items as counts; startup template lookup; registry wiring; D-015
+requirement 1 as shown in the PRE-CODE (§3d); D-015 point 2 option (b); the `LLMError` docstring
+corrected. Q1 (a), Q2 (a), Q3 (a), Q4 (a), Q5 (i), Q6 (a), Q7 (a), Q8 (b), Q9 (a), Q10 (a),
+Q11 (a), Q12 (a), Q13 (a), Q14 (a), Q15 (a), Q16 corrected, Q17 (a), Q18 D-017 and TD-027.
+
+Approved verbatim: §5.10.2 (after the §5.10.1 closing line, before the `---` preceding
+"## 5.11 Content Validator") and §5.15.3 (after the §5.15.2 closing line, before
+"## 5.16 Logging"); additions only.
+
+For the Stage 8 closure: TD-023 moves to Removed Debt; TD-024 stays; TD-027 is added: no re-queue
+tool exists for FAILED items; re-queueing needs manual SQL today; candidate for Phase 5/7.
+
+### Delivered
+
+* `docs/frozen_sds.md/frozen_sds.md` – §5.10.2 and §5.15.3; additions only.
+* `arip/pipeline/stages/generate.py` – `GenerateStage`, `is_eligible()`,
+  `select_for_generation()`, `Selection`.
+* `arip/pipeline/orchestrator.py` – the optional `generate_stage_factory` argument and the
+  `_generate()` step after `_embed()`; the module docstring states the AD-06 guarantee.
+* `arip/container.py` – step 11, `_build_generation()`, `_languages()`, `PROMPTS_DIR`,
+  `AppComponents.llm_registry`.
+* `arip/config.py` – `GenerationSettings.enabled: bool = False` and the check-config line
+  `Generation        : <value>` before "Max retries". `config/settings.yaml` – `enabled: false`.
+* `arip/exceptions.py` – the `LLMError` docstring now follows §5.10.1 and §5.10.2;
+  `arip/__main__.py` – the `run` description.
+* Tests (new files): `tests/unit/pipeline/test_generate.py` (27),
+  `tests/unit/pipeline/test_orchestrator_generation.py` (5),
+  `tests/unit/test_container_generation.py` (7); appended to
+  `tests/unit/test_config_generation.py` (4).
+* `project_log/DECISIONS.md` – D-017.
+* Outside the repository: `stage8_verify.py`, `check_generation_selection.py` (ruling Q17) and
+  the two `approved_*.txt` files.
+
+One change beyond the PRE-CODE's section 1: `test_shipped_settings_generation_section` compares
+the whole shipped `generation` section, so it gains one line (`"enabled": False,`). The PRE-CODE
+had said the 17 existing tests of that file stay unchanged; the other 16 do.
+
+Not in Stage 8: the live run and the Phase 4 gate evidence (Stage 9); the TECHNICAL_DEBT changes
+(closure).
+
+### Verification (before delivery)
+
+* `stage8_verify.py` (outside the repository): both approved texts are LF; the new SDS equals the
+  old SDS (5632f495…2786) plus exactly those texts at their points; SDS numstat 49/0; only the
+  expected files added or changed; the other existing test files byte-identical; no attribution
+  string in any changed file or deliverable; `data/`, `.env` untouched.
+* Full suite 995 passed, 1 skipped (CUDA torch, transformers 5.20.2, bitsandbytes, no GPU), also
+  with bitsandbytes blocked; 913 passed, 4 skipped without the `embedding` and `llm` extras.
+  `ruff check` clean; 98 files formatted; `check-config` valid with `Generation        : False`.
+* Windows approximation (every test file CRLF, every text-mode write translating "\n" to "\r\n"):
+  995 passed, 1 skipped.
+* Mutations S1–S10, T1–T11, P1–P6, O1–O4, W1–W5, C1–C3, full suite each; the failing set equalled
+  the predicted set every time.
+* `check_generation_selection.py` was exercised on another local pool (not the Stage 2 snapshot):
+  its counts equal those of `count_eligible.py` on the same file, and it refuses a file named
+  `arip.db`.
+
+The Stage 8 closure follows after review.

@@ -12,13 +12,16 @@ Phase 0: config, logging, and DB wiring.
 Batch 7: source registry and pipeline orchestrator (SDS §8.2).
 Batch 8: ranking scorer.
 Batch 9: embedding registry and semantic deduplicator factory.
-Later batches: scheduler, LLM registry, reviewer, publishers.
+Batch 11: LLM registry, prompt templates and the generate-stage factory, built
+only when generation.enabled is true (SDS §5.15.3).
+Later batches: scheduler, reviewer, publishers.
 
 Target size: ~50-100 lines of straightforward factory code.
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
@@ -30,17 +33,32 @@ from sqlalchemy.orm import Session, sessionmaker
 # whose __init__.py registers every backend as a BaseEmbedder subclass (D-004).
 # EmbeddingRegistry must not be constructed before that has happened.
 from arip.backends.embeddings.registry import EmbeddingRegistry
+
+# Importing the registry also imports the arip.backends.llm package, whose
+# __init__.py registers every backend as a BaseLLM subclass (D-004). Neither
+# backend module imports torch or transformers at module level.
+from arip.backends.llm.registry import LLMRegistry
 from arip.config import AppSettings, load_settings
 from arip.db.database import build_engine, build_session_factory, check_db_connection
 from arip.dedup.semantic import SemanticDeduplicator
+from arip.enums import Language
+from arip.exceptions import ConfigError
+from arip.generation.generator import TEMPLATE_ID
+from arip.generation.prompt_manager import PromptManager
+from arip.generation.validator import ContentValidator
 from arip.logging_setup import setup_logging
 from arip.pipeline.orchestrator import PipelineOrchestrator
+from arip.pipeline.stages.generate import GenerateStage
 from arip.ranking.scorer import Scorer
 
 # Importing the registry also imports the arip.sources package, whose
 # __init__.py registers every source class as a BaseSource subclass (D-002).
 # SourceRegistry must not be constructed before that has happened.
 from arip.sources.registry import SourceRegistry
+
+PROMPTS_DIR = Path("config/prompts")
+"""The prompt template directory (SDS §5.8), relative to the working directory like
+the other runtime paths."""
 
 
 @dataclass
@@ -56,6 +74,8 @@ class AppComponents:
     session_factory: sessionmaker[Session]
     source_registry: SourceRegistry
     embedding_registry: EmbeddingRegistry
+    llm_registry: LLMRegistry | None
+    """None when generation.enabled is false (SDS §5.15.3)."""
     orchestrator: PipelineOrchestrator
 
 
@@ -121,7 +141,14 @@ def build_app_components(
     # factory(embedding_dim=...) and never sees a settings object.
     deduplicator_factory = partial(SemanticDeduplicator, config=settings.dedup)
 
-    # Step 11: Wire the orchestrator with everything a run needs.
+    # Step 11: The generation stage, only when generation.enabled is true
+    # (§5.15.3). Selects the LLM backend, loads the prompt templates and looks
+    # up the template of every configured language, so a missing template is a
+    # ConfigError here, before a run opens (§5.8). No model is loaded (AD-06).
+    generation = _build_generation(settings, PROMPTS_DIR)
+    llm_registry, generate_stage_factory = generation if generation else (None, None)
+
+    # Step 12: Wire the orchestrator with everything a run needs.
     # It receives constructed collaborators, single values and pre-bound
     # factories, never the settings object itself.
     orchestrator = PipelineOrchestrator(
@@ -131,6 +158,7 @@ def build_app_components(
         min_score=settings.ranking.min_score,
         embedder_factory=embedding_registry.get_backend,
         deduplicator_factory=deduplicator_factory,
+        generate_stage_factory=generate_stage_factory,
     )
 
     return AppComponents(
@@ -139,8 +167,57 @@ def build_app_components(
         session_factory=session_factory,
         source_registry=source_registry,
         embedding_registry=embedding_registry,
+        llm_registry=llm_registry,
         orchestrator=orchestrator,
     )
+
+
+def _build_generation(
+    settings: AppSettings, prompts_dir: Path
+) -> tuple[LLMRegistry, Callable[..., GenerateStage]] | None:
+    """The LLM registry and the generate-stage factory, or None when disabled (§5.15.3).
+
+    Raises:
+        ConfigError: An unknown LLM backend, a language code in
+                     ``pipeline.languages`` that is unknown or listed twice, a
+                     missing or malformed template directory or template, or no
+                     ``thread`` template for a configured language.
+    """
+    if not settings.generation.enabled:
+        return None
+    llm_registry = LLMRegistry(settings.llm)
+    prompt_manager = PromptManager(prompts_dir)
+    languages = _languages(settings.pipeline.languages)
+    for language in languages:
+        prompt_manager.get_template(TEMPLATE_ID, language)
+    factory = partial(
+        GenerateStage,
+        llm_factory=llm_registry.get_backend,
+        prompt_manager=prompt_manager,
+        validator=ContentValidator(settings.generation.validation),
+        params=settings.llm.generation,
+        max_retries=settings.generation.max_retries,
+        languages=languages,
+        max_items_per_run=settings.pipeline.max_items_per_run,
+    )
+    return llm_registry, factory
+
+
+def _languages(codes: list[str]) -> list[Language]:
+    """``pipeline.languages`` as ``Language`` values; unknown or repeated codes fail (§5.15.3)."""
+    languages: list[Language] = []
+    for code in codes:
+        try:
+            language = Language(code)
+        except ValueError:
+            available = ", ".join(member.value for member in Language)
+            raise ConfigError(
+                f"Unknown language '{code}' in pipeline.languages. Available: {available}."
+            ) from None
+        if language in languages:
+            raise ConfigError(f"Language '{code}' is listed twice in pipeline.languages.")
+        languages.append(language)
+    return languages
 
 
 def _ensure_runtime_dirs(settings: AppSettings) -> None:

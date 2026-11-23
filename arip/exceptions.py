@@ -46,9 +46,10 @@ class LLMError(ARIPError):
     """LLM backend failure.
 
     Covers model load failures, VRAM exhaustion (torch.cuda.OutOfMemoryError
-    is caught and re-raised as LLMError), and generation errors. Generation
-    errors trigger a per-item retry (different seed); model load failures are
-    fatal for the entire generation stage.
+    is caught and re-raised as LLMError), and generation errors. A generation
+    error is not retried (SDS 5.10.1): the item is marked FAILED and the
+    generation pass stops (SDS 5.10.2). A model load failure changes no item
+    and stops the pass before it starts.
     """
 
 

@@ -184,6 +184,7 @@ def test_shipped_settings_generation_section() -> None:
     data = yaml.safe_load((REPO / "config" / "settings.yaml").read_text(encoding="utf-8"))
 
     assert data["generation"] == {
+        "enabled": False,
         "max_retries": 2,
         "validation": {"max_full_text_chars": 3000, "prohibited_phrases": []},
     }
@@ -216,3 +217,44 @@ def test_check_config_prints_generation_lines(in_tmp: Path) -> None:
     assert "  Max retries       : 4" in lines
     assert "  Max text chars    : 2500" in lines
     assert "  Blocked phrases   : 2" in lines
+
+
+# ---------------------------------------------------------------------------
+# generation.enabled (SDS 5.15.3, ruling A1 / Q1)
+# ---------------------------------------------------------------------------
+
+
+def test_generation_disabled_by_default(in_tmp: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("ARIP_GENERATION__ENABLED", raising=False)
+    assert GenerationSettings().enabled is False
+    path = write_yaml(in_tmp / "settings.yaml", {"llm": {"model_name": "m"}})
+
+    assert load_settings(path).generation.enabled is False
+
+
+def test_settings_yaml_disables_generation() -> None:
+    """Parsed directly: load_settings() would also read .env and environment variables."""
+    data = yaml.safe_load((REPO / "config" / "settings.yaml").read_text(encoding="utf-8"))
+
+    assert data["generation"]["enabled"] is False
+
+
+def test_generation_switch_env_override(in_tmp: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    path = write_yaml(in_tmp / "settings.yaml", {"llm": {"model_name": "m"}})
+    monkeypatch.setenv("ARIP_GENERATION__ENABLED", "true")
+
+    assert load_settings(path).generation.enabled is True
+
+
+def test_summary_prints_generation_switch(in_tmp: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("ARIP_GENERATION__ENABLED", raising=False)
+    path = write_yaml(
+        in_tmp / "settings.yaml", {"llm": {"model_name": "m"}, "generation": {"enabled": True}}
+    )
+    out = io.StringIO()
+
+    print_settings_summary(load_settings(path), file=out)
+
+    lines = out.getvalue().splitlines()
+    assert "  Generation        : True" in lines
+    assert lines.index("  Generation        : True") + 1 == lines.index("  Max retries       : 2")

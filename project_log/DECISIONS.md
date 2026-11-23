@@ -656,3 +656,80 @@ Pinned by `tests/unit/generation/test_context.py` and
 output through the validator. The real parse-failure rate is a Stage 9 question.
 
 Introduced in Batch 11, Stage 7.
+
+---
+
+## D-017
+
+Generation stage conventions (SDS §5.10.2, §5.15.3). `GenerateStage`
+(`arip/pipeline/stages/generate.py`) receives the session factory, an LLM factory
+(`LLMRegistry.get_backend`), the prompt manager, the validator,
+`config.llm.generation`, `config.generation.max_retries`, the configured
+languages and `pipeline.max_items_per_run`. `container.py` binds everything but
+the session factory with `functools.partial`; the orchestrator calls the factory
+after the embedding stage has returned. Selection runs once per pass, in one
+session, before the model is loaded: `is_eligible(item)` is
+`abstract is not None and abstract.strip() != ""`, and
+`select_for_generation(items, cap)` walks the D-010 order, skips and counts
+ineligible items, selects the first `cap` eligible ones and counts the rest as
+beyond the cap. A selected item that fails is not replaced. One
+`with llm_factory() as llm:` block covers the pass. Each item runs in its own
+`session_scope()` and is re-loaded there by id. An `LLMError` is caught inside
+that scope: the item is marked FAILED, the error is returned out of the scope and
+raised once the scope has committed, and the pass stops (threshold 1). Any other
+exception rolls the item back, leaves it ENRICHED and stops the pass. Every
+FAILED transition writes `failed_at_stage='GENERATION'` and
+`failure_reason=last_failure_reason`, then calls `deactivate_all_for_item()`;
+GENERATED takes `generated_at` from the active row. Counts are logged per
+language in `generation_stage_completed`; `stage_metrics` is not written.
+`_build_generation()` returns None when `generation.enabled` is false, and then
+nothing generation-related is built and the orchestrator logs
+`generation_stage_disabled`. When true it builds `LLMRegistry`,
+`PromptManager(Path("config/prompts"))`, converts `pipeline.languages` (an
+unknown or repeated code is a `ConfigError`) and looks up the `thread` template
+for each language.
+
+### Reason
+
+- Q5 (i): an item wrongly left ENRICHED waits one run on its stored score; an
+  item wrongly marked FAILED needs a manual re-queue, for which no tool exists
+  (TD-027). §5.10 treats an `LLMError` as a hardware or model issue, which the
+  next item meets too; OOM from outside pressure on 8 GB persists.
+- D-015 requirement 1: returning the error out of the scope is what lets the
+  scope commit the attempt rows with the FAILED transition.
+- Q8 (b): `is_active` means "selected for review/publishing" (§4.3); a FAILED
+  item is neither, and the generator stays unchanged.
+- Q2 (a), Q15 (a): with the switch off a run behaves as before Stage 8, and
+  `test_orchestrator.py` needs no change. Q3 (a): §5.8 names `config/prompts/`.
+  Q6 (a), Q7 (a): a stopped pass is visible as a FAILED run with the error text;
+  an exception that is not the item's fault does not fail the item. Q9 (a): one
+  timestamp for the item and its active row. Q10 (a): the canonical
+  `session_scope()`. Q11 (a): ordering by structure leaves the §5.6 interface
+  and `interfaces.py` unchanged. Q12 (a), Q13 (a): the Stage 4 default; the
+  column stays a Phase 7 deliverable. Q14 (a): codes are checked only when
+  generation is on.
+
+### Rejected Alternatives
+
+- A stop threshold of 2 or 3, or an OOM-aware rule (Q5 ii–iv). A COMPLETED run
+  after a stop (Q6 b). Marking an item FAILED for an exception that is not an
+  `LLMError` (Q7 b). Keeping the earlier active row of a FAILED item, or
+  deactivating at pass start in the generator (Q8 a, c). One session for the
+  whole stage, or explicit `commit()` calls (Q10 b, c). `BaseEmbedder.is_loaded`
+  with a runtime check (Q11 b). A WARNING line for skipped items (Q12 b).
+  Building the registry and templates when generation is off (Q2 b). A config
+  field for the template directory (Q3 c). Language validation in the config
+  model (Q14 b).
+
+### Scope
+
+`arip/pipeline/stages/generate.py`, the `_generate()` step of
+`arip/pipeline/orchestrator.py`, `_build_generation()` and `_languages()` in
+`arip/container.py`, and `generation.enabled` in `arip/config.py` and
+`config/settings.yaml`. Pinned by `tests/unit/pipeline/test_generate.py`,
+`tests/unit/pipeline/test_orchestrator_generation.py`,
+`tests/unit/test_container_generation.py` and the appended tests of
+`tests/unit/test_config_generation.py` (mutations S1–S10, T1–T11, P1–P6, O1–O4,
+W1–W5, C1–C3). The live run is Stage 9.
+
+Introduced in Batch 11, Stage 8.

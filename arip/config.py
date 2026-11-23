@@ -168,10 +168,13 @@ class ValidationConfig(BaseModel):
 
 
 class GenerationSettings(BaseModel):
-    """The generation stage's retry and validation settings (SDS 5.10, 5.15.2).
+    """The generation stage's switch, retry and validation settings (SDS 5.10, 5.15.2, 5.15.3).
 
     Not the sampling parameters: those are llm.generation (GenerationParams).
     """
+
+    enabled: bool = False
+    """Run the generation stage (SDS 5.15.3). Off by default: a run then ends after embedding."""
 
     max_retries: int = Field(default=2, ge=0)
     """Retries after a failed validation: at most max_retries + 1 attempts per item and pass."""
@@ -421,6 +424,7 @@ def print_settings_summary(settings: AppSettings, *, file: Any = None) -> None:
     print(f"  Languages         : {settings.pipeline.languages}", file=file)
     print(f"  LLM backend       : {settings.llm.backend}", file=file)
     print(f"  LLM model         : {settings.llm.model_name}", file=file)
+    print(f"  Generation        : {settings.generation.enabled}", file=file)
     print(f"  Max retries       : {settings.generation.max_retries}", file=file)
     print(f"  Max text chars    : {settings.generation.validation.max_full_text_chars}", file=file)
     print(

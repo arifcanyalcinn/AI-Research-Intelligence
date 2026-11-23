@@ -8,9 +8,10 @@ Usage:
 
 Subcommands:
     check-config    Validate configuration and print a summary. No pipeline runs.
-    run             Execute one pipeline run immediately (manual trigger).
-                    Batch 7 runs the collection stage; later batches extend
-                    the orchestrator with the remaining stages (SDS §8.2).
+    run             Execute one pipeline run immediately (manual trigger):
+                    collect, rank, embed, and generate when
+                    generation.enabled is true (SDS §5.15.3). Later batches
+                    extend the orchestrator with the remaining stages.
 
 The `arip` script alias also invokes this module (defined in pyproject.toml
 under [project.scripts]).

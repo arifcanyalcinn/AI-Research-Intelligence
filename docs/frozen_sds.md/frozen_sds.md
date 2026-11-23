@@ -1176,6 +1176,37 @@ ContentGenerator(llm: BaseLLM, prompt_manager: PromptManager,
 
 *No frozen decision in §9.1 is altered by this amendment.*
 
+### 5.10.2 — Generation Stage
+
+**Amends:** §5.14 — *"A single `with db.session_scope() as session:` context manager wraps each pipeline stage"* — for the generation stage only, and adds to §3.3 (`ENRICHED → GENERATED`, `ENRICHED → FAILED`), §5.10.1 and §9.2.1 what the generation stage does with the results of `ContentGenerator.generate()`. The original text of these sections is left in place.
+
+**Place in a run.** When generation is enabled (§5.15.3), a pipeline run executes collect → rank → embed → generate. The generation stage starts only after the embedding stage has returned: the embedding model's context manager has exited and the embedding stage's session has committed. If an earlier stage fails, the run ends and the generation stage does not run. The generation stage receives no embedding backend and the embedding stage receives no LLM backend, so no stage can hold both models (AD-06, §7.1).
+
+**Selection.** For each language in `pipeline.languages`, in the configured order, the stage selects items as §9.2.1 states. An item's source text is empty when `abstract` is NULL or when Python's `str.strip()` leaves nothing of it. Selection for every language is completed before the LLM is loaded. When no item is selected in any language, the LLM is not loaded.
+
+**Model lifecycle.** One `with llm_registry.get_backend() as llm:` block (§5.9) covers the whole pass, for every language: the model is loaded once per pass and unloaded when the block exits, including when it exits with an exception (AD-05).
+
+**Transactions.** Selection reads in a session of its own. Each selected item is then processed in its own `session_scope()`, which commits before the next item begins. An item's `generated_content` rows and its transition are committed together or not at all. Items committed earlier in the pass stay committed when a later item, the pass or the run fails.
+
+**Outcome per item.** `generate(item)` is called inside the per-item logging context of §5.16, with `stage="generation"`.
+
+| Result of `generate(item)` | Transition | Item fields written |
+|---|---|---|
+| a row | `ENRICHED → GENERATED` | `generated_at` = the `generated_at` of that row |
+| `None` | `ENRICHED → FAILED` | `failed_at_stage='GENERATION'`, `failure_reason` = `last_failure_reason` |
+| `LLMError` | `ENRICHED → FAILED`; the pass stops | `failed_at_stage='GENERATION'`, `failure_reason` = `last_failure_reason` |
+| any other exception | none: the item's scope rolls back and the item stays `ENRICHED`; the pass stops | none |
+
+`None` covers a template error and an item whose every attempt failed validation (§5.10.1); both count against the cap (§9.2.1). An `LLMError` is caught inside the item's scope: the item is marked FAILED and the scope commits, together with the rows of the attempts stored before the error (§5.10.1); only then does the error propagate. A `ConfigError` raised by `generate()` is treated as any other exception; §5.15.3 makes a missing template a startup error.
+
+When the stage marks an item FAILED, it sets `is_active=False` on every `generated_content` row of that item. An item therefore has an active row only while its most recent generation pass has succeeded.
+
+**Stopping the pass.** The first `LLMError` in a pass stops it: §5.10 treats it as a hardware or model issue, which the next item would meet as well. The selected items not yet processed are not transitioned; they stay `ENRICHED` and are selected again under §9.2.1 in a later run. An `LLMError` raised while the model loads, such as the out-of-memory error of §5.9, changes no item. Whenever the pass stops, the LLM's context manager has exited before the error leaves the stage, and the run is recorded `FAILED` with the error text in `pipeline_runs.error_summary` (§4.6).
+
+**Logging and counts.** At the start of the pass, one INFO line `generation_stage_started` with the languages and `max_items_per_run`. At the end of the pass, also when it stops, one INFO line `generation_stage_completed` per language with `language`, `enriched` (items found in `ENRICHED`), `ineligible` (skipped for empty source text), `selected`, `beyond_cap` (eligible items not selected), `generated`, `failed`, `not_processed` (selected items left `ENRICHED` because the pass stopped), `stopped` and `duration_ms`. Ineligible and beyond-cap items get no line of their own. Each item marked FAILED gets one WARNING line `item_generation_failed` with its `failure_reason`; a stop gets one ERROR line `generation_pass_stopped`. When generation is disabled, the run logs one INFO line `generation_stage_disabled`. `pipeline_runs.stage_metrics` is not written; it remains a Phase 7 deliverable (§8, §8.4).
+
+*No frozen decision in §9.1 is altered by this amendment. AD-03 is upheld: every status change goes through `StateMachine.transition()`.*
+
 ---
 
 ## 5.11 Content Validator
@@ -1557,6 +1588,24 @@ generation: GenerationSettings
 | `generation.max_retries` | ≥ 0 | |
 | `generation.validation.max_full_text_chars` | ≥ 1 | |
 | `generation.validation.prohibited_phrases` | no empty or whitespace-only entry | such an entry would match every text |
+
+*No frozen decision in §9.1 is altered by this amendment.*
+
+### 5.15.3 — Generation Switch
+
+**Amends:** the `generation` section that §5.15.2 adds to the configuration model of §5.15. The original block and §5.15.2 are left in place.
+
+```
+generation: GenerationSettings
+├── enabled: bool = False                    # run the generation stage (§5.10.2)
+├── max_retries: int = 2
+└── validation: ValidationConfig
+```
+
+- **`false`** (the default, and the value in `config/settings.yaml`): a pipeline run ends after the embedding stage, as it did before the generation stage existed, apart from one log line saying that generation is disabled (§5.10.2). Startup selects no LLM backend, reads no prompt template and loads no model.
+- **`true`**: startup (`container.py`) also selects the LLM backend named by `llm.backend` (§5.9), loads the templates in `config/prompts/` (§5.8), converts each entry of `pipeline.languages` to a `Language`, and looks up the `thread` template (D-013) for each. An unknown backend, a language code that is unknown or listed twice, or a missing template is a `ConfigError` at startup, before a run opens (§5.8: "`ConfigError` at startup (not at generation time)"). The model is not loaded at startup; the generation stage loads it (§5.10.2, AD-06).
+- A single run can enable generation without editing the file: `ARIP_GENERATION__ENABLED=true`.
+- `check-config` prints the value. It does not select the backend or read templates.
 
 *No frozen decision in §9.1 is altered by this amendment.*
 

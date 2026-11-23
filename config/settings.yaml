@@ -60,6 +60,9 @@ llm:
     stop_sequences: []
 
 generation:
+  # Run the generation stage (SDS 5.15.3). false: a run ends after embedding and loads no LLM.
+  # One run with generation on, without editing this file: ARIP_GENERATION__ENABLED=true
+  enabled: false
   # Retries after a failed validation (SDS 5.10, 5.15.2): at most max_retries + 1 attempts
   # per item and generation pass.
   max_retries: 2

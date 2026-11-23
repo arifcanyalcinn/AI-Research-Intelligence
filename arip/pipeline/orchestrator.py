@@ -1,13 +1,30 @@
 """
 Pipeline orchestrator — drives one complete pipeline run.
 
-Stage sequence as of Batch 9 (SDS §8.2):
+Stage sequence as of Batch 11 (SDS §8.2, §5.10.2):
 
     reconcile crashed runs → open run → log source health → collect → rank
-    → embed → close run
+    → embed → generate → close run
 
-The remaining stages — generate, review, publish, archive — are delivered in
-subsequent batches and are wired in here as they arrive.
+``generate`` runs only when ``generation.enabled`` is true (§5.15.3): the
+container then supplies a generate-stage factory; otherwise it supplies None and
+the run logs ``generation_stage_disabled`` and ends after embedding. The
+remaining stages — review, publish, archive — are delivered in subsequent
+batches and are wired in here as they arrive.
+
+The embedder and the LLM are never loaded together (AD-06)
+------------------------------------------------------------
+
+Guaranteed by the structure of this module, not by convention:
+
+  - ``_generate()`` is called only after ``_embed()`` has returned, and
+    ``EmbedStage.run()`` returns only after its ``with`` block over the
+    embedder has exited. If any earlier stage raises, ``run_once()`` records
+    the run FAILED and ``_generate()`` is never reached.
+  - ``EmbedStage`` receives no LLM and ``GenerateStage`` receives no embedder,
+    so no stage can hold both.
+  - The embedder runs on CPU and the LLM on GPU, each by explicit code in its
+    backend.
 
 Session boundaries
 ------------------
@@ -51,6 +68,7 @@ from arip.db.repositories.pipeline_runs import PipelineRunRepository
 from arip.db.repositories.raw_payloads import RawPayloadRepository
 from arip.pipeline.stages.collect import CollectStage
 from arip.pipeline.stages.embed import EmbedStage
+from arip.pipeline.stages.generate import STAGE as GENERATION_STAGE
 from arip.pipeline.stages.rank import RankStage
 from arip.ranking.scorer import Scorer
 from arip.sources.registry import SourceRegistry
@@ -61,6 +79,7 @@ if TYPE_CHECKING:
 
     from arip.dedup.semantic import SemanticDeduplicator
     from arip.interfaces import BaseEmbedder
+    from arip.pipeline.stages.generate import GenerateStage
 
 logger = structlog.get_logger(__name__)
 
@@ -80,6 +99,7 @@ class PipelineOrchestrator:
         min_score: float,
         embedder_factory: Callable[[], BaseEmbedder],
         deduplicator_factory: Callable[..., SemanticDeduplicator],
+        generate_stage_factory: Callable[..., GenerateStage] | None = None,
     ) -> None:
         """
         Args:
@@ -96,6 +116,10 @@ class PipelineOrchestrator:
                 dedup configuration is bound in ``container.py``; the width is
                 supplied per run by the loaded model, so the index can never be
                 built at a width the vectors do not have.
+            generate_stage_factory: Called as ``factory(session_factory=...)``,
+                with everything else bound in ``container.py``; or None when
+                ``generation.enabled`` is false (§5.15.3), and then no
+                generation stage runs.
 
         The orchestrator receives finished collaborators, single values and
         pre-bound factories — never a settings object. Config resolution stays
@@ -107,6 +131,7 @@ class PipelineOrchestrator:
         self._min_score = min_score
         self._embedder_factory = embedder_factory
         self._deduplicator_factory = deduplicator_factory
+        self._generate_stage_factory = generate_stage_factory
 
     # ------------------------------------------------------------------
     # Public interface
@@ -131,6 +156,7 @@ class PipelineOrchestrator:
             self._collect(run_id)
             self._rank(run_id)
             self._embed(run_id)
+            self._generate(run_id)
         except Exception as exc:
             with session_scope(self._session_factory) as session:
                 PipelineRunRepository(session).fail(run_id, str(exc))
@@ -269,3 +295,16 @@ class PipelineOrchestrator:
 
         if deduplicator is not None:
             deduplicator.save_index()
+
+    def _generate(self, run_id: int) -> None:
+        """Run the generation stage, or log that it is disabled (§5.10.2, §5.15.3).
+
+        Not wrapped in a ``session_scope``: the stage opens one session for
+        selection and one per item, and each item commits on its own
+        (§5.10.2). Called only after ``_embed()`` has returned (AD-06).
+        """
+        if self._generate_stage_factory is None:
+            logger.info("generation_stage_disabled", run_id=run_id, stage=GENERATION_STAGE)
+            return
+        stage = self._generate_stage_factory(session_factory=self._session_factory)
+        stage.run(run_id)
