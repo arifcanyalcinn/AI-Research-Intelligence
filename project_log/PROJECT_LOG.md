@@ -1737,3 +1737,27 @@ rule (Stage 8). No TECHNICAL_DEBT change.
   set every time.
 
 The Stage 7 closure follows after review.
+
+### Verification (user's machine, 2026-11-23)
+
+* Content-based pre-hashes and post-hashes True; SDS numstat 23/0.
+* `.venv` and arip-llm: 952 passed, 1 skipped; `ruff check .` clean; 94 files already formatted;
+  `check-config` shows LLM model Qwen/Qwen2.5-3B-Instruct, Max retries 2, Max text chars 3000,
+  Blocked phrases 0.
+* 11 files staged (3 modified, 8 added); committed as bd0e5e1 and pushed; working tree clean.
+* Reviewer verification: `approved_5_10_1.txt` equals the PRE-CODE section 5 character for
+  character; the new SDS, rebuilt independently from e5680130… plus that text, is identical,
+  insertion only; all 11 zip files match their content and raw hashes; D-015 carries both
+  Stage 8 requirements.
+* Correction: the reference table of raw CRLF hashes abbreviated the hash of
+  `tests/unit/generation/test_generator.py` as "f1e706786345…fa6f2". The real value is
+  f1e7067863a458e7fe902b00134188c76b7a3b2f05e9296cca4bb85ff33fa6f2. The block-5 content hash was
+  correct, so nothing was affected.
+
+### Closure (2026-11-23)
+
+* Stage 7 is complete as delivered; no TECHNICAL_DEBT change.
+* Carried to the Stage 8 PRE-CODE (D-015): (1) after an `LLMError`, the item is marked FAILED and
+  committed without discarding the rows of earlier attempts, shown and pinned by a test; (2) open:
+  a regeneration pass that fails every attempt leaves the previous active row active while the
+  item becomes FAILED.
